@@ -121,6 +121,18 @@ def create_tables() -> None:
         """
     )
 
+    # Ladas (country calling codes stored globally)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ladas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL UNIQUE,
+            label TEXT,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -190,6 +202,27 @@ class UserSearchResponse(BaseModel):
     id: int
     username: str
     phone_e164: str
+
+
+class LadaCreateRequest(BaseModel):
+    code: str
+    label: Optional[str] = None
+
+
+class LadaResponse(BaseModel):
+    id: int
+    code: str
+    label: Optional[str]
+    created_at: str
+
+
+class InboxItemResponse(BaseModel):
+    with_user_id: int
+    username: str
+    phone_e164: str
+    last_message: str
+    last_message_at: str
+    last_message_id: int
 
 
 # ---------- Auth utilities ----------
@@ -313,6 +346,132 @@ def get_user_by_username(username: str) -> UserSearchResponse:
         id=int(row["id"]),
         username=row["username"],
         phone_e164=row["phone_e164"],
+    )
+
+
+@app.get("/api/inbox", response_model=List[InboxItemResponse])
+def inbox(current_user_id: int = Depends(get_user_id_from_token)) -> List[InboxItemResponse]:
+    """Return the last message of each conversation for the current user.
+
+    This is used by the Android client to detect new incoming messages
+    without having to poll the full message history.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Subquery to get the last message id per other user
+    cur.execute(
+        """
+        SELECT MAX(id) AS max_id
+        FROM (
+            SELECT id,
+                   CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id
+            FROM messages
+            WHERE sender_id = ? OR recipient_id = ?
+        )
+        GROUP BY other_user_id
+        """,
+        (current_user_id, current_user_id, current_user_id),
+    )
+    ids_rows = cur.fetchall()
+    if not ids_rows:
+        conn.close()
+        return []
+
+    last_ids = [int(r["max_id"]) for r in ids_rows]
+
+    # Now fetch full info for those messages and their counterpart users
+    placeholders = ",".join("?" for _ in last_ids)
+    query = f"""
+        SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at,
+               u.id AS other_id, u.username, u.phone_e164
+        FROM messages m
+        JOIN users u ON u.id = CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
+        WHERE m.id IN ({placeholders})
+        ORDER BY m.id DESC
+    """
+
+    cur.execute(query, (current_user_id, *last_ids))
+    rows = cur.fetchall()
+    conn.close()
+
+    result: List[InboxItemResponse] = []
+    for r in rows:
+        result.append(
+            InboxItemResponse(
+                with_user_id=int(r["other_id"]),
+                username=r["username"],
+                phone_e164=r["phone_e164"],
+                last_message=r["content"],
+                last_message_at=r["created_at"],
+                last_message_id=int(r["id"]),
+            )
+        )
+
+    return result
+
+
+@app.get("/api/ladas", response_model=List[LadaResponse])
+def list_ladas() -> List[LadaResponse]:
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, code, label, created_at FROM ladas ORDER BY code")
+    rows = cur.fetchall()
+    conn.close()
+
+    result: List[LadaResponse] = []
+    for r in rows:
+        result.append(
+            LadaResponse(
+                id=int(r["id"]),
+                code=r["code"],
+                label=r["label"],
+                created_at=r["created_at"],
+            )
+        )
+    return result
+
+
+@app.post("/api/ladas", response_model=LadaResponse)
+def add_lada(req: LadaCreateRequest) -> LadaResponse:
+    code = req.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+
+    if not code.startswith("+"):
+        code = "+" + code.lstrip("+").lstrip("0")
+
+    if len(code) < 2 or len(code) > 5 or not code[1:].isdigit():
+        raise HTTPException(status_code=400, detail="invalid lada code")
+
+    label = req.label.strip() if req.label else None
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO ladas (code, label, created_at) VALUES (?, ?, ?)",
+            (code, label, now_iso()),
+        )
+        conn.commit()
+        lada_id = cur.lastrowid
+        cur.execute("SELECT id, code, label, created_at FROM ladas WHERE id = ?", (lada_id,))
+        row = cur.fetchone()
+    except sqlite3.IntegrityError:
+        # If code already exists, return existing row
+        cur.execute("SELECT id, code, label, created_at FROM ladas WHERE code = ?", (code,))
+        row = cur.fetchone()
+        if row is None:
+            conn.close()
+            raise HTTPException(status_code=400, detail="lada already exists")
+    finally:
+        conn.close()
+
+    return LadaResponse(
+        id=int(row["id"]),
+        code=row["code"],
+        label=row["label"],
+        created_at=row["created_at"],
     )
 
 
