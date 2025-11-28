@@ -681,5 +681,44 @@ def delete_contact(contact_user_id: int, current_user_id: int = Depends(get_user
     return {"status": "ok"}
 
 
+# ---------- Admin endpoints ----------
+
+ADMIN_SECRET = os.environ.get("HAMCHAT_ADMIN_SECRET", "hamchat-reset-2024")
+
+
+@app.post("/api/admin/reset-db")
+def reset_database(secret: str) -> dict:
+    """Limpiar todas las tablas de la base de datos. Requiere clave secreta."""
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM auth_tokens")
+    cur.execute("DELETE FROM messages")
+    cur.execute("DELETE FROM contacts")
+    cur.execute("DELETE FROM users")
+    cur.execute("DELETE FROM ladas")
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok", "message": "Database reset complete"}
+
+
+@app.get("/api/admin/users")
+def list_users(secret: str) -> list:
+    """Listar todos los usuarios registrados. Requiere clave secreta."""
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, phone_e164, created_at FROM users")
+    rows = cur.fetchall()
+    conn.close()
+
+    return [dict(row) for row in rows]
+
+
 # To run locally:
 #   uvicorn main:app --reload
