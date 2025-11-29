@@ -86,11 +86,35 @@ def create_tables() -> None:
             recipient_id INTEGER NOT NULL,
             content TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            received_at TEXT,
+            is_delivered INTEGER DEFAULT 0,
+            local_id TEXT,
             FOREIGN KEY(sender_id) REFERENCES users(id),
             FOREIGN KEY(recipient_id) REFERENCES users(id)
         );
         """
     )
+    
+    # Migrar tabla existente si falta columnas
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN sent_at TEXT")
+    except:
+        pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN received_at TEXT")
+    except:
+        pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN is_delivered INTEGER DEFAULT 0")
+    except:
+        pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN local_id TEXT")
+    except:
+        pass
+    # Actualizar registros existentes
+    cur.execute("UPDATE messages SET sent_at = created_at WHERE sent_at IS NULL")
 
     # Contacts (server-side address book)
     cur.execute(
@@ -218,6 +242,8 @@ class LoginResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     recipient_id: int
     content: str = Field(..., min_length=1, max_length=1000)
+    local_id: Optional[str] = None  # ID local para evitar duplicados
+    sent_at: Optional[str] = None   # Timestamp de envío del cliente
 
 
 class MessageResponse(BaseModel):
@@ -226,6 +252,14 @@ class MessageResponse(BaseModel):
     recipient_id: int
     content: str
     created_at: str
+    sent_at: Optional[str] = None
+    received_at: Optional[str] = None
+    is_delivered: bool = False
+    local_id: Optional[str] = None
+
+
+class MarkDeliveredRequest(BaseModel):
+    message_ids: list[int]  # IDs de mensajes a marcar como entregados
 
 
 class ContactCreateRequest(BaseModel):
@@ -581,13 +615,39 @@ def send_message(req: SendMessageRequest, current_user_id: int = Depends(get_use
         conn.close()
         raise HTTPException(status_code=404, detail="recipient not found")
 
+    # Verificar si ya existe un mensaje con el mismo local_id (evitar duplicados)
+    if req.local_id:
+        cur.execute("SELECT id FROM messages WHERE local_id = ? AND sender_id = ?", (req.local_id, current_user_id))
+        existing = cur.fetchone()
+        if existing:
+            # Ya existe, devolver el mensaje existente
+            cur.execute(
+                "SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id FROM messages WHERE id = ?",
+                (existing["id"],)
+            )
+            row = cur.fetchone()
+            conn.close()
+            return MessageResponse(
+                id=int(row["id"]),
+                sender_id=int(row["sender_id"]),
+                recipient_id=int(row["recipient_id"]),
+                content=row["content"],
+                created_at=row["created_at"],
+                sent_at=row["sent_at"],
+                received_at=row["received_at"],
+                is_delivered=bool(row["is_delivered"]),
+                local_id=row["local_id"],
+            )
+
     created_at = now_iso()
+    sent_at = req.sent_at or created_at  # Usar timestamp del cliente si existe
+    
     cur.execute(
         """
-        INSERT INTO messages (sender_id, recipient_id, content, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO messages (sender_id, recipient_id, content, created_at, sent_at, local_id, is_delivered)
+        VALUES (?, ?, ?, ?, ?, ?, 0)
         """,
-        (current_user_id, req.recipient_id, req.content, created_at),
+        (current_user_id, req.recipient_id, req.content, created_at, sent_at, req.local_id),
     )
     conn.commit()
     msg_id = cur.lastrowid
@@ -599,6 +659,9 @@ def send_message(req: SendMessageRequest, current_user_id: int = Depends(get_use
         recipient_id=req.recipient_id,
         content=req.content,
         created_at=created_at,
+        sent_at=sent_at,
+        is_delivered=False,
+        local_id=req.local_id,
     )
 
 
@@ -609,7 +672,7 @@ def get_messages(with_user_id: int, limit: int = 50, current_user_id: int = Depe
 
     cur.execute(
         """
-        SELECT id, sender_id, recipient_id, content, created_at
+        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id
         FROM messages
         WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
         ORDER BY id DESC
@@ -629,6 +692,10 @@ def get_messages(with_user_id: int, limit: int = 50, current_user_id: int = Depe
                 recipient_id=int(r["recipient_id"]),
                 content=r["content"],
                 created_at=r["created_at"],
+                sent_at=r["sent_at"],
+                received_at=r["received_at"],
+                is_delivered=bool(r["is_delivered"]) if r["is_delivered"] else False,
+                local_id=r["local_id"],
             )
         )
     return result
@@ -641,7 +708,7 @@ def get_messages_since(with_user_id: int, since_id: int = 0, current_user_id: in
 
     cur.execute(
         """
-        SELECT id, sender_id, recipient_id, content, created_at
+        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id
         FROM messages
         WHERE id > ?
           AND ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))
@@ -661,9 +728,41 @@ def get_messages_since(with_user_id: int, since_id: int = 0, current_user_id: in
                 recipient_id=int(r["recipient_id"]),
                 content=r["content"],
                 created_at=r["created_at"],
+                sent_at=r["sent_at"],
+                received_at=r["received_at"],
+                is_delivered=bool(r["is_delivered"]) if r["is_delivered"] else False,
+                local_id=r["local_id"],
             )
         )
     return result
+
+
+@app.post("/api/messages/mark-delivered")
+def mark_messages_delivered(req: MarkDeliveredRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Marcar mensajes como entregados al receptor"""
+    if not req.message_ids:
+        return {"marked": 0}
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    received_at = now_iso()
+    placeholders = ",".join("?" for _ in req.message_ids)
+    
+    # Solo marcar mensajes donde el usuario actual es el destinatario
+    cur.execute(
+        f"""
+        UPDATE messages 
+        SET is_delivered = 1, received_at = ?
+        WHERE id IN ({placeholders}) AND recipient_id = ? AND is_delivered = 0
+        """,
+        (received_at, *req.message_ids, current_user_id),
+    )
+    conn.commit()
+    marked = cur.rowcount
+    conn.close()
+    
+    return {"marked": marked, "received_at": received_at}
 
 
 @app.get("/api/contacts", response_model=List[ContactResponse])
