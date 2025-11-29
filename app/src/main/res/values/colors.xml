@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Theme Colors -->
+    <color name="primary_dark">#1a1a1a</color>
+    <color name="primary_dark_variant">#000000</color>
+    <color name="secondary_dark">#2a2a2a</color>
+    <color name="background_dark">#121212</color>
+    <color name="surface_dark">#1e1e1e</color>
+    <color name="on_primary_dark">#ffffff</color>
+    <color name="on_secondary_dark">#ffffff</color>
+    <color name="on_background_dark">#ffffff</color>
+    <color name="on_surface_dark">#ffffff</color>
+    
+    <!-- Hamtaro Theme Colors -->
+    <color name="hamtaro_orange">#ff9800</color>
+    <color name="hamtaro_orange_light">#ffb74d</color>
+    <color name="hamtaro_cream">#fff8e1</color>
+    <color name="hamtaro_black">#212121</color>
+    <color name="hamtaro_gray">#757575</color>
+    
+    <!-- Accent Colors -->
+    <color name="accent_blue">#2196f3</color>
+    <color name="accent_green">#4caf50</color>
+    <color name="accent_red">#f44336</color>
+    <color name="accent_color">#ff9800</color>
+    <color name="white">#ffffff</color>
+    <color name="on_surface">#ffffff</color>
+    <color name="on_surface_variant">#b3ffffff</color>
+    
+    <!-- Message Colors -->
+    <color name="message_sent">#2196f3</color>
+    <color name="message_received">#424242</color>
+    <color name="message_timestamp">#757575</color>
+    
+    <!-- Game Colors -->
+    <color name="game_background">#87ceeb</color>
+    <color name="game_ground">#8b7355</color>
+    <color name="game_net">#ffffff</color>
+    <color name="ball_white">#ffffff</color>
+    <color name="hamtaro_brown">#8b4513</color>
+    <color name="lacitos_pink">#ff69b4</color>
+</resources>

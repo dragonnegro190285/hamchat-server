@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ✅ Solo permisos esenciales -->
+    <!-- 🎤 Audio permissions -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
+    <!-- 🔔 Notification permissions -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- 🌐 Network permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    
+    <!-- 🖥️ Foreground service for embedded server -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@drawable/hamtaro"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/hamtaro"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HamChat"
+        android:name=".HamtaroApplication"
+        android:largeHeap="true"
+        android:hardwareAccelerated="true"
+        tools:targetApi="31">
+        
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+        
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+            
+        <activity
+            android:name=".ui.SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.HamChat.Splash"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.SimpleMediaActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar.Gothic"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.MediaActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".game.GameWatchActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.GameWatch"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.ChatActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.NewRemoteChatActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.HamChat.NoActionBar" />
+
+        <!-- 🖥️ Embedded Server Service -->
+        <service
+            android:name=".server.HamChatServerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+    </application>
+
+</manifest>

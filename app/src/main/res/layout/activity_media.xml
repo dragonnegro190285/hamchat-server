@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#FFF5E6"
+    tools:context=".ui.MediaActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 🎨 Header -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🎮🎨 Multimedia Ham-Chat"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#FF9500"
+            android:gravity="center"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 📸 Sección de Fotos -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📸 Enviar Foto"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btn_select_photo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📷 Seleccionar Foto"
+                android:textColor="#FFFFFF"
+                android:background="#FF9500"
+                android:padding="12dp"
+                android:textSize="16sp"
+                android:layout_marginBottom="12dp" />
+
+            <ImageView
+                android:id="@+id/iv_media_preview"
+                android:layout_width="match_parent"
+                android:layout_height="200dp"
+                android:scaleType="centerCrop"
+                android:background="#EEEEEE"
+                android:visibility="gone"
+                android:contentDescription="Preview de imagen" />
+
+        </LinearLayout>
+
+        <!-- 🎤 Sección de Audio -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Grabar Audio"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="12dp" />
+
+            <!-- 🎵 Selector de formato de audio -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎵 Formato:"
+                    android:textSize="14sp"
+                    android:textColor="#666666"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="8dp" />
+
+                <Spinner
+                    android:id="@+id/spinner_audio_format"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="#FFFFFF"
+                    android:padding="8dp" />
+
+                <Button
+                    android:id="@+id/btn_format_info"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📊"
+                    android:textSize="16sp"
+                    android:background="#FFD700"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="40dp" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_record_audio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Grabar"
+                android:textColor="#FFFFFF"
+                android:background="#FF69B4"
+                android:padding="12dp"
+                android:textSize="16sp"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/tv_recording_indicator"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Grabando..."
+                android:textSize="14sp"
+                android:textColor="#FF0000"
+                android:gravity="center"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_playback_audio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="▶️ Reproducir Audio"
+                android:textColor="#FFFFFF"
+                android:background="#4CAF50"
+                android:padding="12dp"
+                android:textSize="16sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- 📄 Sección de Texto -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📄 Enviar Texto"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/et_text_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Escribe tu mensaje aquí..."
+                android:inputType="textMultiLine"
+                android:minHeight="100dp"
+                android:gravity="top"
+                android:background="#FFFFFF"
+                android:padding="12dp"
+                android:textColor="#333333"
+                android:textColorHint="#999999"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btn_send_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📤 Enviar Texto"
+                android:textColor="#FFFFFF"
+                android:background="#0099FF"
+                android:padding="12dp"
+                android:textSize="16sp" />
+
+        </LinearLayout>
+
+        <!-- 🔔 Sección de Notificaciones -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔔 Personalizar Notificaciones"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <Button
+                    android:id="@+id/btn_message_tone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🔔 Mensaje"
+                    android:textColor="#FFFFFF"
+                    android:background="#FFD700"
+                    android:padding="8dp"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_call_tone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📞 Llamada"
+                    android:textColor="#FFFFFF"
+                    android:background="#00FF00"
+                    android:padding="8dp"
+                    android:textSize="14sp"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_media_tone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🎶 Multimedia"
+                    android:textColor="#FFFFFF"
+                    android:background="#FF69B4"
+                    android:padding="8dp"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_test_notification"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🧪 Probar"
+                    android:textColor="#FFFFFF"
+                    android:background="#FF9500"
+                    android:padding="8dp"
+                    android:textSize="14sp"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 📊 Información de Multimedia -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📊 Límites y Tamaños"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📸 Fotos: Máx. 5MB, formato WebP optimizado"
+                android:textSize="14sp"
+                android:textColor="#666666"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎵 Audio: Máx. 10MB, 60 seg. máximo"
+                android:textSize="14sp"
+                android:textColor="#666666"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎶 Formatos: TTA (alta calidad), WAV (estándar), MP3 (compresión)"
+                android:textSize="14sp"
+                android:textColor="#666666"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📄 Texto: Máx. 1MB, formato TXT"
+                android:textSize="14sp"
+                android:textColor="#666666"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔔 Tonos: Personalizables con sonidos Hamtaro"
+                android:textSize="14sp"
+                android:textColor="#666666" />
+
+        </LinearLayout>
+
+        <!-- 🐹 Footer -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🐹 Ham-Chat Multimedia - Todo en uno"
+            android:textSize="12sp"
+            android:textColor="#FF9500"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+    </LinearLayout>
+
+</ScrollView>

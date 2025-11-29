@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    
+    <!-- Hamtaro body (orange circle) -->
+    <path
+        android:fillColor="@color/hamtaro_orange"
+        android:pathData="M60,20C35.67,20 16,39.67 16,64C16,88.33 35.67,108 60,108C84.33,108 104,88.33 104,64C104,39.67 84.33,20 60,20Z" />
+    
+    <!-- Hamtaro ears -->
+    <path
+        android:fillColor="@color/hamtaro_orange"
+        android:pathData="M30,35C25,30 15,32 15,42C15,52 20,55 25,50L30,35Z" />
+    
+    <path
+        android:fillColor="@color/hamtaro_orange"
+        android:pathData="M90,35C95,30 105,32 105,42C105,52 100,55 95,50L90,35Z" />
+    
+    <!-- Eyes -->
+    <path
+        android:fillColor="@color/hamtaro_black"
+        android:pathData="M42,57h6v6h-6z" />
+    
+    <path
+        android:fillColor="@color/hamtaro_black"
+        android:pathData="M72,57h6v6h-6z" />
+    
+    <!-- Nose -->
+    <path
+        android:fillColor="@color/hamtaro_black"
+        android:pathData="M58,68h4v4h-4z" />
+    
+    <!-- Mouth -->
+    <path
+        android:fillColor="@color/hamtaro_black"
+        android:strokeWidth="2"
+        android:strokeColor="@color/hamtaro_black"
+        android:pathData="M55,75 Q60,80 65,75" />
+    
+    <!-- Whiskers -->
+    <path
+        android:strokeColor="@color/hamtaro_black"
+        android:strokeWidth="1"
+        android:pathData="M35,65 L25,63" />
+    
+    <path
+        android:strokeColor="@color/hamtaro_black"
+        android:strokeWidth="1"
+        android:pathData="M35,70 L25,70" />
+    
+    <path
+        android:strokeColor="@color/hamtaro_black"
+        android:strokeWidth="1"
+        android:pathData="M85,65 L95,63" />
+    
+    <path
+        android:strokeColor="@color/hamtaro_black"
+        android:strokeWidth="1"
+        android:pathData="M85,70 L95,70" />
+    
+</vector>

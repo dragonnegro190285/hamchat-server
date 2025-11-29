@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 🔒 SECURE PERMISSIONS 🔒 -->
+    <!-- Only request permissions that are absolutely necessary -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- 🔒 REMOVED EXCESSIVE PERMISSIONS 🔒 -->
+    <!-- These will be requested at runtime if needed -->
+    <!-- <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> -->
+    <!-- <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> -->
+    <!-- <uses-permission android:name="android.permission.CAMERA" /> -->
+    <!-- <uses-permission android:name="android.permission.RECORD_AUDIO" /> -->
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HamChat"
+        android:name=".HamtaroApplication"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="false"
+        tools:targetApi="31">
+        
+        <!-- 🔒 SECURE MAIN ACTIVITY 🔒 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTop">
+            <!-- Only allow launcher intent, no external apps -->
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+        <!-- 🔒 SECURE LOGIN ACTIVITY 🔒 -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".MainActivity" />
+            
+        <!-- 🔒 SECURE SECRET GAME ACTIVITY 🔒 -->
+        <activity
+            android:name=".SecretGameActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.Game"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".MainActivity" />
+
+        <!-- 🔒 SECURE TOX SERVICE 🔒 -->
+        <service
+            android:name=".service.ToxService"
+            android:enabled="true"
+            android:exported="false"
+            android:permission="com.hamtaro.hamchat.permission.BIND_TOX_SERVICE" />
+
+        <!-- 🔒 SECURITY CONFIGURATIONS 🔒 -->
+        
+        <!-- Content provider for secure data sharing -->
+        <provider
+            android:name=".security.SecureContentProvider"
+            android:authorities="com.hamtaro.hamchat.provider"
+            android:exported="false"
+            android:grantUriPermissions="false" />
+
+        <!-- File provider for secure file sharing -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.hamtaro.hamchat.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- 🔒 SECURITY RECEIVER 🔒 -->
+        <receiver
+            android:name=".security.SecurityReceiver"
+            android:exported="false">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

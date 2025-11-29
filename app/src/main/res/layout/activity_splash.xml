@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/hamtaro"
+    android:theme="@style/Theme.HamChat.Splash"
+    tools:context=".ui.SplashActivity">
+
+    <!-- 🌟 Contenedor Principal con Alice in Wonderland Font -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="top"
+        android:padding="32dp">
+
+        <!-- 🎨 Título Principal con Alice in Wonderland -->
+        <TextView
+            android:id="@+id/tv_splash_title"
+            style="@style/AliceSplashTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="🐹 Ham-Chat"
+            android:textColor="#4A2C17"
+            android:shadowColor="#F5E6D3"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="2" />
+
+        <!-- 📖 Subtítulo con Alice in Wonderland -->
+        <TextView
+            android:id="@+id/tv_splash_subtitle"
+            style="@style/AliceSplashSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="32dp"
+            android:text="La app de mensajería más adorable"
+            android:textColor="#4A2C17"
+            android:shadowColor="#F5E6D3"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="2" />
+
+    </LinearLayout>
+
+    <!-- 🎨 Contenedor de Características en parte inferior -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_alignParentBottom="true"
+        android:padding="16dp">
+
+        <!-- ⭐ Características con texto pequeño -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="📞 Llamadas de voz"
+                android:textSize="12sp"
+                android:textColor="#4A2C17"
+                android:shadowColor="#F5E6D3"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="🎤 Mensajes de audio"
+                android:textSize="12sp"
+                android:textColor="#4A2C17"
+                android:shadowColor="#F5E6D3"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="📄 Mensajes de texto"
+                android:textSize="12sp"
+                android:textColor="#4A2C17"
+                android:shadowColor="#F5E6D3"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="🎵 Audio Opus 48kbps"
+                android:textSize="12sp"
+                android:textColor="#4A2C17"
+                android:shadowColor="#F5E6D3"
+                android:shadowDx="1"
+                android:shadowDy="1"
+                android:shadowRadius="1" />
+
+        </LinearLayout>
+
+        <!-- 🔄 Loading Indicator -->
+        <ProgressBar
+            android:id="@+id/progress_splash"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:indeterminateTint="#FF9500" />
+
+        <!-- 📝 Mensaje de Carga -->
+        <TextView
+            android:id="@+id/tv_splash_loading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Preparando la magia Hamtaro..."
+            android:textSize="10sp"
+            android:textColor="#4A2C17"
+            android:shadowColor="#F5E6D3"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="1" />
+
+    </LinearLayout>
+
+    <!-- 🎨 Decoración Inferior -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✨ Con el estilo de "
+            android:textSize="8sp"
+            android:textColor="#4A2C17"
+            android:shadowColor="#F5E6D3"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Alice in Wonderland"
+            android:textColor="#FF69B4"
+            android:textStyle="bold|italic"
+            android:textSize="8sp" />
+
+    </LinearLayout>
+
+</RelativeLayout>

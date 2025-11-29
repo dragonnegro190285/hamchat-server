@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="#FFF5E6"
+    tools:context=".ui.SimpleMediaActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 🎨 Header con Gothic Book Font -->
+        <TextView
+            style="@style/GothicBookHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📞🎤📄 Ham-Chat Simple"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 📞 Sección de Llamadas -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                style="@style/GothicBookSubheader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📞 Llamada de Voz"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btn_voice_call"
+                style="@style/ButtonPrimaryGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📞 Llamar"
+                android:background="#00FF00"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/tv_call_status"
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📞 En llamada..."
+                android:textColor="#00FF00"
+                android:gravity="center"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+        </LinearLayout>
+
+        <!-- 🎤 Sección de Audio -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                style="@style/GothicBookSubheader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Mensaje de Audio"
+                android:layout_marginBottom="12dp" />
+
+            <!-- 🎵 Selector de formato de audio -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    style="@style/TextViewGothic"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎵 Formato:"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="8dp" />
+
+                <Spinner
+                    android:id="@+id/spinner_audio_format"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="#FFFFFF"
+                    android:padding="8dp" />
+
+                <Button
+                    android:id="@+id/btn_format_info"
+                    style="@style/ButtonSecondaryGothic"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📊"
+                    android:background="#FFD700"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="40dp" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_record_audio"
+                style="@style/ButtonPrimaryGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Grabar"
+                android:background="#FF69B4"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/tv_recording_indicator"
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎤 Grabando..."
+                android:textColor="#FF0000"
+                android:gravity="center"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_playback_audio"
+                style="@style/ButtonPrimaryGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="▶️ Reproducir Audio"
+                android:background="#4CAF50"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- 📄 Sección de Texto -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                style="@style/GothicBookSubheader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📄 Mensaje de Texto"
+                android:layout_marginBottom="12dp" />
+
+            <EditText
+                android:id="@+id/et_text_input"
+                style="@style/EditTextGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Escribe tu mensaje aquí..."
+                android:inputType="textMultiLine"
+                android:minHeight="100dp"
+                android:gravity="top"
+                android:background="@drawable/edittext_gothic_background"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btn_send_text"
+                style="@style/ButtonPrimaryGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📤 Enviar Texto"
+                android:background="#0099FF" />
+
+        </LinearLayout>
+
+        <!-- 🔔 Sección de Notificaciones -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                style="@style/GothicBookSubheader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔔 Personalizar Notificaciones"
+                android:layout_marginBottom="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <Button
+                    android:id="@+id/btn_message_tone"
+                    style="@style/ButtonSecondaryGothic"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🔔 Mensaje"
+                    android:background="#FFD700"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_call_tone"
+                    style="@style/ButtonSecondaryGothic"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📞 Llamada"
+                    android:background="#00FF00"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_media_tone"
+                    style="@style/ButtonSecondaryGothic"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🎶 Audio"
+                    android:background="#FF69B4"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_test_notification"
+                    style="@style/ButtonSecondaryGothic"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🧪 Probar"
+                    android:background="#FF9500"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 📊 Información de Límites -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card_background"
+            android:padding="16dp">
+
+            <TextView
+                style="@style/GothicBookSubheader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📊 Límites y Características"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📞 Llamadas: Voz en tiempo real"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎵 Audio: Máx. 10MB, 60 seg. máximo"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🎶 Formatos: Opus 48kbps (mensajes), TTA (tonos de llamada)"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📄 Texto: Máx. 1MB, formato TXT"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextViewGothic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔔 Tonos: Personalizables con sonidos Hamtaro" />
+
+        </LinearLayout>
+
+        <!-- 🐹 Footer con Gothic Book Font -->
+        <TextView
+            style="@style/GothicBookLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🐹 Ham-Chat Simple - Solo lo esencial"
+            android:textColor="#FF9500"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+    </LinearLayout>
+
+</ScrollView>

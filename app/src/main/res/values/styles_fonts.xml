@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    
+    <!-- 🎨 Gothic Book Font Styles para Interfaz Principal -->
+    
+    <!-- Base Gothic Book Style -->
+    <style name="GothicBookFont">
+        <item name="android:fontFamily">@font/gothic_book</item>
+        <item name="android:textColor">#333333</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+    
+    <!-- Gothic Book para Headers -->
+    <style name="GothicBookHeader" parent="GothicBookFont">
+        <item name="android:textSize">24sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FF9500</item>
+        <item name="android:gravity">center</item>
+    </style>
+    
+    <!-- Gothic Book para Subheaders -->
+    <style name="GothicBookSubheader" parent="GothicBookFont">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#333333</item>
+    </style>
+    
+    <!-- Gothic Book para Botones -->
+    <style name="GothicBookButton" parent="GothicBookFont">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+    
+    <!-- Gothic Book para Texto Normal -->
+    <style name="GothicBookBody" parent="GothicBookFont">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">#666666</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+    
+    <!-- Gothic Book para Labels -->
+    <style name="GothicBookLabel" parent="GothicBookFont">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">#999999</item>
+    </style>
+    
+    <!-- 🌟 Alice in Wonderland Font Styles para Splash Screen -->
+    
+    <!-- Base Alice in Wonderland Style -->
+    <style name="AliceInWonderlandFont">
+        <item name="android:fontFamily">@font/alice_in_wonderland</item>
+        <item name="android:textColor">#FF9500</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+    
+    <!-- Alice para Splash Title -->
+    <style name="AliceSplashTitle" parent="AliceInWonderlandFont">
+        <item name="android:textSize">36sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FF9500</item>
+        <item name="android:gravity">center</item>
+        <item name="android:shadowColor">#80000000</item>
+        <item name="android:shadowDx">2</item>
+        <item name="android:shadowDy">2</item>
+        <item name="android:shadowRadius">3</item>
+    </style>
+    
+    <!-- Alice para Splash Subtitle -->
+    <style name="AliceSplashSubtitle" parent="AliceInWonderlandFont">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textColor">#666666</item>
+        <item name="android:gravity">center</item>
+        <item name="android:lineSpacingExtra">4dp</item>
+    </style>
+    
+    <!-- Alice para Welcome Text -->
+    <style name="AliceWelcomeText" parent="AliceInWonderlandFont">
+        <item name="android:textSize">24sp</item>
+        <item name="android:textColor">#FF9500</item>
+        <item name="android:gravity">center</item>
+        <item name="android:lineSpacingExtra">6dp</item>
+    </style>
+    
+    <!-- 🎨 Temas Completos con Fuentes -->
+    
+    <!-- Tema Principal con Gothic Book -->
+    <style name="Theme.HamChat.Gothic" parent="Theme.HamChat">
+        <item name="android:fontFamily">@font/gothic_book</item>
+        <item name="android:textViewStyle">@style/GothicBookFont</item>
+        <item name="android:buttonStyle">@style/GothicBookButton</item>
+    </style>
+    
+    <!-- Tema Splash con Alice in Wonderland -->
+    <style name="Theme.HamChat.Splash" parent="Theme.HamChat">
+        <item name="android:fontFamily">@font/alice_in_wonderland</item>
+        <item name="android:textViewStyle">@style/AliceInWonderlandFont</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+    
+    <!-- 🎮 Tema Game & Watch con Gothic Book -->
+    <style name="Theme.HamChat.GameWatch.Font" parent="Theme.HamChat.Gothic">
+        <item name="android:textColor">#00FF00</item>
+        <item name="android:windowBackground">#000000</item>
+    </style>
+    
+    <!-- 🐹 Tema Hamtaro con Gothic Book -->
+    <style name="Theme.HamChat.Hamtaro.Font" parent="Theme.HamChat.Gothic">
+        <item name="android:textColor">#FF9500</item>
+        <item name="android:windowBackground">#FFF5E6</item>
+    </style>
+    
+    <!-- 📱 Tema NoActionBar con Gothic Book -->
+    <style name="Theme.HamChat.NoActionBar.Gothic" parent="Theme.HamChat.NoActionBar">
+        <item name="android:fontFamily">@font/gothic_book</item>
+        <item name="android:textViewStyle">@style/GothicBookFont</item>
+        <item name="android:buttonStyle">@style/GothicBookButton</item>
+    </style>
+    
+    <!-- 🎨 Estilos Específicos para Componentes -->
+    
+    <!-- Card Title con Gothic Book -->
+    <style name="CardTitleGothic" parent="GothicBookSubheader">
+        <item name="android:padding">16dp</item>
+        <item name="android:background">@drawable/card_title_background</item>
+    </style>
+    
+    <!-- Button Primary con Gothic Book -->
+    <style name="ButtonPrimaryGothic" parent="GothicBookButton">
+        <item name="android:background">@drawable/button_primary_background</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:layout_margin">8dp</item>
+    </style>
+    
+    <!-- Button Secondary con Gothic Book -->
+    <style name="ButtonSecondaryGothic" parent="GothicBookButton">
+        <item name="android:background">@drawable/button_secondary_background</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:layout_margin">8dp</item>
+    </style>
+    
+    <!-- EditText con Gothic Book -->
+    <style name="EditTextGothic" parent="GothicBookFont">
+        <item name="android:textColor">#333333</item>
+        <item name="android:textColorHint">#999999</item>
+        <item name="android:background">@drawable/edittext_background</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:layout_margin">8dp</item>
+    </style>
+    
+    <!-- TextView con Gothic Book -->
+    <style name="TextViewGothic" parent="GothicBookBody">
+        <item name="android:padding">8dp</item>
+        <item name="android:layout_margin">4dp</item>
+    </style>
+    
+    <!-- 🌟 Estilos para Splash Screen con Alice -->
+    
+    <!-- Splash Container -->
+    <style name="SplashContainer">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:background">@drawable/splash_background</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">32dp</item>
+    </style>
+    
+    <!-- Splash Logo -->
+    <style name="SplashLogo">
+        <item name="android:layout_width">200dp</item>
+        <item name="android:layout_height">200dp</item>
+        <item name="android:layout_marginBottom">32dp</item>
+        <item name="android:src">@mipmap/ic_launcher</item>
+    </style>
+    
+    <!-- Splash Title -->
+    <style name="SplashTitle" parent="AliceSplashTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">16dp</item>
+    </style>
+    
+    <!-- Splash Subtitle -->
+    <style name="SplashSubtitle" parent="AliceSplashSubtitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">32dp</item>
+    </style>
+    
+</resources>

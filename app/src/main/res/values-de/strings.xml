@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ham-Chat</string>
+    
+    <!-- Login Screen -->
+    <string name="username">Benutzername</string>
+    <string name="password">Passwort</string>
+    <string name="login">Anmelden</string>
+    <string name="create_account">Konto erstellen</string>
+    
+    <!-- Main Navigation -->
+    <string name="chats">Chats</string>
+    <string name="friends">Freunde</string>
+    <string name="settings">Einstellungen</string>
+    
+    <!-- Chat -->
+    <string name="type_message">Nachricht eingeben...</string>
+    <string name="send">Senden</string>
+    <string name="add_friend">Freund hinzufügen</string>
+    <string name="tox_id">Tox ID</string>
+    
+    <!-- Settings -->
+    <string name="language">Sprache</string>
+    <string name="theme">Thema</string>
+    <string name="dark_theme">Dunkles Thema</string>
+    <string name="hamtaro_theme">Hamtaro Thema</string>
+    
+    <!-- Secret Game -->
+    <string name="volleyball_game">Volleyball Spiel</string>
+    <string name="difficulty_a">Schwierigkeit A (Leicht)</string>
+    <string name="difficulty_b">Schwierigkeit B (Progressiv)</string>
+    <string name="score">Punkte</string>
+    <string name="faults">Fehler</string>
+    <string name="game_over">Spiel Beendet</string>
+    <string name="special_message">Gemacht von Hamtaro und Mirania mit Liebe &lt;3</string>
+    
+    <!-- Konami Code Message -->
+    <string name="secret_phrase">Mirania Du bist zartlich &gt;////&lt;</string>
+</resources>

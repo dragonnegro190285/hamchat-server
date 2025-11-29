@@ -1,0 +1,100 @@
+// 🔒 Security Fixes for Ham-Chat
+// Apply these changes to app/build.gradle
+
+android {
+    compileSdk 34
+    
+    defaultConfig {
+        applicationId "com.hamtaro.hamchat"
+        minSdk 28
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        
+        // Security configurations
+        multiDexEnabled true
+        
+        // Disable backup for security
+        vectorDrawables.useSupportLibrary = true
+    }
+    
+    buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+            
+            // Security for debug builds
+            buildConfigField "boolean", "ENABLE_LOGGING", "true"
+            buildConfigField "boolean", "ENABLE_CRASH_REPORTING", "true"
+        }
+        
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            // Security for release builds
+            buildConfigField "boolean", "ENABLE_LOGGING", "false"
+            buildConfigField "boolean", "ENABLE_CRASH_REPORTING", "false"
+        }
+    }
+}
+
+dependencies {
+    // Core Android components with security updates
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    
+    // Lifecycle components (latest secure versions)
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    
+    // Navigation (secure version)
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.7.6'
+    implementation 'androidx.navigation:navigation-ui-ktx:2.7.6'
+    
+    // UI Components
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
+    implementation 'androidx.multidex:multidex:2.0.1'
+    
+    // 🔒 SECURITY UPDATES 🔒
+    
+    // Tox4j - Check for latest secure version
+    // TODO: Update to latest version when available
+    implementation 'com.github.toktok:tox4j:0.2.2'
+    
+    // Network security
+    implementation 'com.google.code.gson:gson:2.10.1'
+    
+    // Image loading with security fixes
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    
+    // 🔒 ADDITIONAL SECURITY DEPENDENCIES 🔒
+    
+    // Certificate pinning
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okhttp3:certificate-transparency:4.12.0'
+    
+    // Encryption
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    
+    // Biometric authentication
+    implementation 'androidx.biometric:biometric:1.1.0'
+    
+    // Root detection
+    implementation 'com.scottyab:rootbeer-lib:0.1.0'
+    
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    
+    // Security testing
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
+}

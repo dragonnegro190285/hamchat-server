@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Fondo liso claro para maximizar legibilidad -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFF7E9" />
+        </shape>
+    </item>
+
+    <!-- Imagen de Hamtaro como marca de agua muy tenue y estirada a todo el fondo -->
+    <item>
+        <bitmap
+            android:src="@drawable/hamtaro"
+            android:gravity="fill"
+            android:alpha="0.18" />
+    </item>
+</layer-list>
