@@ -190,7 +190,7 @@ create_tables()
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
-    password: str = Field(..., min_length=4, max_length=128)
+    password: Optional[str] = None  # Ya no es requerido
     phone_country_code: str
     phone_national: str
 
@@ -204,8 +204,10 @@ class UserResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: Optional[str] = None  # Opcional
+    password: Optional[str] = None  # Ya no es requerido
+    phone_country_code: Optional[str] = None  # Login por teléfono
+    phone_national: Optional[str] = None  # Login por teléfono
 
 
 class LoginResponse(BaseModel):
@@ -369,19 +371,30 @@ def register(req: RegisterRequest) -> UserResponse:
 def login(req: LoginRequest) -> LoginResponse:
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, password_hash FROM users WHERE username = ?", (req.username,))
-    row = cur.fetchone()
+    row = None
+    
+    # Login por teléfono (prioridad)
+    if req.phone_country_code and req.phone_national:
+        cc, nat, e164 = normalize_phone(req.phone_country_code, req.phone_national)
+        cur.execute("SELECT id, username FROM users WHERE phone_e164 = ?", (e164,))
+        row = cur.fetchone()
+        if row:
+            print(f"📱 Login por teléfono: {e164}")
+    
+    # Login por username (fallback)
+    if row is None and req.username:
+        cur.execute("SELECT id, username FROM users WHERE username = ?", (req.username,))
+        row = cur.fetchone()
+        if row:
+            print(f"👤 Login por username: {req.username}")
 
     if row is None:
         conn.close()
-        raise HTTPException(status_code=401, detail="invalid credentials")
+        raise HTTPException(status_code=401, detail="Usuario no encontrado. Regístrate primero.")
 
     user_id = int(row["id"])
-    stored_hash = row["password_hash"]
-    if stored_hash != hash_password(req.password):
-        conn.close()
-        raise HTTPException(status_code=401, detail="invalid credentials")
-
+    
+    # Generar token sin verificar contraseña
     token = str(uuid.uuid4())
     cur.execute(
         "INSERT INTO auth_tokens (user_id, token, created_at) VALUES (?, ?, ?)",
