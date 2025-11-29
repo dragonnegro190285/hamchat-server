@@ -134,7 +134,14 @@ object HamChatSyncManager {
         return KEY_PENDING_PREFIX + contactId
     }
 
-    fun addPendingMessage(context: Context, contactId: String, content: String, timestamp: Long) {
+    // Estructura para mensaje pendiente con localId
+    data class PendingMessage(
+        val content: String,
+        val timestamp: Long,
+        val localId: String
+    )
+
+    fun addPendingMessage(context: Context, contactId: String, content: String, timestamp: Long, localId: String = "") {
         val key = getPendingKey(contactId)
         val prefs = getPrefs(context)
         val existing = prefs.getString(key, null)
@@ -147,15 +154,28 @@ object HamChatSyncManager {
                 JSONArray()
             }
         }
+        
+        // Verificar si ya existe un mensaje con el mismo localId
+        if (localId.isNotEmpty()) {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i)
+                if (obj?.optString("localId") == localId) {
+                    // Ya existe, no agregar duplicado
+                    return
+                }
+            }
+        }
+        
         val obj = JSONObject()
         obj.put("content", content)
         obj.put("timestamp", timestamp)
+        obj.put("localId", localId)
         array.put(obj)
         prefs.edit().putString(key, array.toString()).apply()
     }
 
-    private fun loadPendingMessages(context: Context, contactId: String): MutableList<Pair<String, Long>> {
-        val result = mutableListOf<Pair<String, Long>>()
+    private fun loadPendingMessages(context: Context, contactId: String): MutableList<PendingMessage> {
+        val result = mutableListOf<PendingMessage>()
         val key = getPendingKey(contactId)
         val prefs = getPrefs(context)
         val json = prefs.getString(key, null) ?: return result
@@ -166,14 +186,15 @@ object HamChatSyncManager {
                 val content = obj.optString("content", "")
                 if (content.isEmpty()) continue
                 val ts = obj.optLong("timestamp", System.currentTimeMillis())
-                result.add(content to ts)
+                val localId = obj.optString("localId", "")
+                result.add(PendingMessage(content, ts, localId))
             }
         } catch (_: Exception) {
         }
         return result
     }
 
-    private fun savePendingMessages(context: Context, contactId: String, pending: List<Pair<String, Long>>) {
+    private fun savePendingMessages(context: Context, contactId: String, pending: List<PendingMessage>) {
         val key = getPendingKey(contactId)
         val prefs = getPrefs(context)
         if (pending.isEmpty()) {
@@ -181,10 +202,11 @@ object HamChatSyncManager {
             return
         }
         val array = JSONArray()
-        for ((content, ts) in pending) {
+        for (msg in pending) {
             val obj = JSONObject()
-            obj.put("content", content)
-            obj.put("timestamp", ts)
+            obj.put("content", msg.content)
+            obj.put("timestamp", msg.timestamp)
+            obj.put("localId", msg.localId)
             array.put(obj)
         }
         prefs.edit().putString(key, array.toString()).apply()
@@ -213,7 +235,7 @@ object HamChatSyncManager {
     private fun sendNextPending(
         context: Context,
         contactId: String,
-        pending: MutableList<Pair<String, Long>>,
+        pending: MutableList<PendingMessage>,
         remoteUserId: Int,
         authHeader: String,
         onFinished: (() -> Unit)?
@@ -224,8 +246,8 @@ object HamChatSyncManager {
             return
         }
 
-        val (content, _) = pending.first()
-        val request = MessageRequest(recipient_id = remoteUserId, content = content)
+        val msg = pending.first()
+        val request = MessageRequest(recipient_id = remoteUserId, content = msg.content)
 
         try {
             HamChatApiClient.api.sendMessage(authHeader, request)
@@ -235,15 +257,19 @@ object HamChatSyncManager {
                         response: Response<MessageDto>
                     ) {
                         if (response.isSuccessful) {
+                            // Mensaje enviado exitosamente, remover de pendientes
                             pending.removeAt(0)
                             savePendingMessages(context, contactId, pending)
+                            // Continuar con el siguiente
                             sendNextPending(context, contactId, pending, remoteUserId, authHeader, onFinished)
                         } else {
+                            // Error del servidor, mantener en cola
                             onFinished?.invoke()
                         }
                     }
 
                     override fun onFailure(call: Call<MessageDto>, t: Throwable) {
+                        // Error de red, mantener en cola
                         onFinished?.invoke()
                     }
                 })

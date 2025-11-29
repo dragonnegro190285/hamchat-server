@@ -26,7 +26,14 @@ private const val PREFS_NAME = "hamchat_settings"
 private const val KEY_CHAT_PREFIX = "chat_"
 private const val KEY_PRIVATE_CHAT = "private_chat_hamtaro"
 
-data class ChatMessage(val sender: String, val content: String, val timestamp: Long)
+data class ChatMessage(
+    val sender: String, 
+    val content: String, 
+    val timestamp: Long,
+    val serverId: Int = 0,           // ID del servidor (0 si no está en servidor)
+    val localId: String = "",        // ID local único para evitar duplicados
+    val isSentToServer: Boolean = false  // Si ya se envió al servidor
+)
 
 class ChatActivity : AppCompatActivity() {
 
@@ -137,11 +144,17 @@ class ChatActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
 
-                // Para todos los contactos (Hamtaro y otros), el mensaje se guarda en Ham-Chat
+                // Generar ID local único para el mensaje
+                val localId = generateLocalId()
+                val now = System.currentTimeMillis()
+                
                 val message = ChatMessage(
                     sender = "Yo",
                     content = text,
-                    timestamp = System.currentTimeMillis()
+                    timestamp = now,
+                    serverId = 0,  // Aún no está en servidor
+                    localId = localId,
+                    isSentToServer = false
                 )
                 messages.add(message)
                 addMessageToContainer(message)
@@ -152,8 +165,8 @@ class ChatActivity : AppCompatActivity() {
 
                 val toastText = when {
                     isPrivateChat -> "Nota guardada"
-                    remoteUserId != null -> "Mensaje guardado; se enviará por Ham-Chat cuando haya conexión"
-                    else -> "Mensaje guardado solo en este dispositivo (no se enviará a otra persona)"
+                    remoteUserId != null -> "Enviando..."
+                    else -> "Mensaje guardado solo en este dispositivo"
                 }
                 Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
 
@@ -162,7 +175,8 @@ class ChatActivity : AppCompatActivity() {
                         context = this,
                         contactId = contactId,
                         content = text,
-                        timestamp = message.timestamp
+                        timestamp = now,
+                        localId = localId
                     )
                     HamChatSyncManager.flushPendingMessages(
                         context = this,
@@ -224,6 +238,13 @@ class ChatActivity : AppCompatActivity() {
         clipboard.setPrimaryClip(clip)
     }
 
+    /**
+     * Genera un ID local único para cada mensaje
+     */
+    private fun generateLocalId(): String {
+        return "local_${System.currentTimeMillis()}_${(Math.random() * 100000).toInt()}"
+    }
+
     private fun loadMessages() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val key = if (isPrivateChat) KEY_PRIVATE_CHAT else KEY_CHAT_PREFIX + contactId
@@ -236,7 +257,18 @@ class ChatActivity : AppCompatActivity() {
                 val sender = obj.optString("sender")
                 val content = obj.optString("content")
                 val timestamp = obj.optLong("timestamp")
-                messages.add(ChatMessage(sender, content, timestamp))
+                val serverId = obj.optInt("serverId", 0)
+                val localId = obj.optString("localId", "")
+                val isSentToServer = obj.optBoolean("isSentToServer", serverId > 0)
+                
+                messages.add(ChatMessage(
+                    sender = sender,
+                    content = content,
+                    timestamp = timestamp,
+                    serverId = serverId,
+                    localId = localId,
+                    isSentToServer = isSentToServer
+                ))
             }
         } catch (e: Exception) {
             // Ignore corrupt history
@@ -264,30 +296,51 @@ class ChatActivity : AppCompatActivity() {
             context = this,
             remoteUserId = remoteId,
             onSuccess = { result ->
-                // Éxito del servidor: REEMPLAZAR todo con datos del servidor
-                // El servidor es la fuente de verdad
-                messages.clear()
                 hasLoadedFromServer = true
                 isFirstLoad = false
                 
+                // Crear mapa de mensajes del servidor por ID
+                val serverMessagesById = mutableMapOf<Int, ChatMessage>()
                 for (m in result.messages) {
-                    val msgId = m.id.toLong()
                     val senderLabel = if (m.sender_id == result.currentUserId) "Yo" else contactName
                     val msgKey = "${m.sender_id}_${m.content}_${m.id}"
                     
                     // Filtrar mensajes borrados localmente
                     if (deletedMessageKeys.contains(msgKey)) continue
                     
-                    messages.add(
-                        ChatMessage(
-                            sender = senderLabel,
-                            content = m.content,
-                            timestamp = msgId
-                        )
+                    serverMessagesById[m.id] = ChatMessage(
+                        sender = senderLabel,
+                        content = m.content,
+                        timestamp = m.id.toLong(),
+                        serverId = m.id,
+                        localId = "",
+                        isSentToServer = true
                     )
                 }
                 
-                // Ordenar por ID del servidor
+                // Obtener mensajes locales pendientes (no enviados al servidor)
+                val pendingLocalMessages = messages.filter { 
+                    !it.isSentToServer && it.serverId == 0 && it.localId.isNotEmpty()
+                }
+                
+                // Crear lista final: mensajes del servidor + pendientes locales
+                messages.clear()
+                messages.addAll(serverMessagesById.values)
+                
+                // Agregar mensajes pendientes que no están en el servidor
+                for (pending in pendingLocalMessages) {
+                    // Verificar que no exista ya (por contenido similar)
+                    val alreadyExists = messages.any { 
+                        it.content == pending.content && 
+                        it.sender == pending.sender &&
+                        Math.abs(it.timestamp - pending.timestamp) < 60000 // 1 minuto de tolerancia
+                    }
+                    if (!alreadyExists) {
+                        messages.add(pending)
+                    }
+                }
+                
+                // Ordenar por timestamp
                 messages.sortBy { it.timestamp }
                 
                 saveMessages()
@@ -337,6 +390,9 @@ class ChatActivity : AppCompatActivity() {
             obj.put("sender", m.sender)
             obj.put("content", m.content)
             obj.put("timestamp", m.timestamp)
+            obj.put("serverId", m.serverId)
+            obj.put("localId", m.localId)
+            obj.put("isSentToServer", m.isSentToServer)
             array.put(obj)
         }
         prefs.edit().putString(key, array.toString()).apply()
