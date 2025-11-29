@@ -73,6 +73,8 @@ class MainActivity : BaseActivity() {
     private lateinit var openMediaFolderButton: Button
     private lateinit var checkServerButton: Button
     private lateinit var helpButton: Button
+    private var userLabelTextView: TextView? = null
+    private var phoneLabelTextView: TextView? = null
     private val idleHandler = Handler(Looper.getMainLooper())
     private val idleTimeoutRunnable = Runnable { onIdleTimeout() }
     private val inboxHandler = Handler(Looper.getMainLooper())
@@ -908,6 +910,9 @@ class MainActivity : BaseActivity() {
                             "Registro completado exitosamente",
                             Toast.LENGTH_SHORT
                         ).show()
+                        
+                        // Refrescar datos de ajustes inmediatamente
+                        refreshSettingsData()
                     } catch (e: Exception) {
                         Toast.makeText(
                             this@MainActivity,
@@ -1090,9 +1095,9 @@ class MainActivity : BaseActivity() {
         checkServerButton = findViewById(R.id.btn_check_server)
         helpButton = findViewById(R.id.btn_help)
         val userLabelId = resources.getIdentifier("tv_user_label", "id", packageName)
-        val userLabelTextView: TextView? = if (userLabelId != 0) findViewById(userLabelId) else null
+        userLabelTextView = if (userLabelId != 0) findViewById(userLabelId) else null
         val phoneLabelId = resources.getIdentifier("tv_phone_label", "id", packageName)
-        val phoneLabelTextView: TextView? = if (phoneLabelId != 0) findViewById(phoneLabelId) else null
+        phoneLabelTextView = if (phoneLabelId != 0) findViewById(phoneLabelId) else null
 
         bottomNavigationView.setOnNavigationItemSelectedListener { item ->
             when (item.itemId) {
@@ -1168,6 +1173,30 @@ class MainActivity : BaseActivity() {
         chatsLayout.visibility = if (section == SECTION_CHATS) View.VISIBLE else View.GONE
         friendsLayout.visibility = if (section == SECTION_FRIENDS) View.VISIBLE else View.GONE
         settingsLayout.visibility = if (section == SECTION_SETTINGS) View.VISIBLE else View.GONE
+        
+        // Refrescar datos de ajustes cuando se muestra esa sección
+        if (section == SECTION_SETTINGS) {
+            refreshSettingsData()
+        }
+    }
+    
+    /**
+     * Refresca los datos mostrados en la sección de ajustes
+     */
+    private fun refreshSettingsData() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val username = prefs.getString(KEY_AUTH_USERNAME, null)
+        userLabelTextView?.text = if (username.isNullOrEmpty()) {
+            "Usuario: (sin registrar)"
+        } else {
+            "Usuario: $username"
+        }
+        val phoneE164 = prefs.getString(KEY_AUTH_PHONE_E164, null)
+        phoneLabelTextView?.text = if (phoneE164.isNullOrEmpty()) {
+            "Teléfono: (sin registrar)"
+        } else {
+            "Teléfono: $phoneE164"
+        }
     }
     
     private fun showMediaFolderInfo() {
