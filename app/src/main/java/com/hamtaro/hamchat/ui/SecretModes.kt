@@ -10,8 +10,9 @@ import com.hamtaro.hamchat.security.SecurityManager
 import com.hamtaro.hamchat.security.SecurePreferences
 
 /**
- * 🎮🎨 Modos Secretos de Ham-Chat
- * Game & Watch style + Tema Hamtaro secreto
+ * 🎮 Modos Secretos de Ham-Chat
+ * Solo el juego Game & Watch es secreto
+ * El tema Hamtaro es el tema PRINCIPAL (no secreto)
  */
 class SecretModes(private val context: Context) {
     
@@ -20,15 +21,11 @@ class SecretModes(private val context: Context) {
     private val securePrefs = SecurePreferences(context)
     
     companion object {
-        // 🎮 Konami Code para Game & Watch
+        // 🎮 Konami Code para Game & Watch (ÚNICO SECRETO)
         private const val KONAMI_CODE = "UP_UP_DOWN_DOWN_LEFT_RIGHT_LEFT_RIGHT_22"
-        
-        // 🎨 Frase secreta para tema Hamtaro
-        private const val HAMTARO_TRIGGER = "Mirania Du bist zartlich >////<"
         
         // 🔐 Claves para SharedPreferences
         private const val GAME_UNLOCKED = "game_mode_unlocked"
-        private const val HAMTARO_UNLOCKED = "hamtaro_theme_unlocked"
         private const val SECRET_ATTEMPTS = "secret_attempts"
         
         // 🎮 Configuración Game & Watch
@@ -86,21 +83,11 @@ class SecretModes(private val context: Context) {
     }
     
     /**
-     * 🎨 Procesar input de texto (tema Hamtaro)
+     * 🎨 Procesar input de texto
+     * Ya no se usa para desbloquear tema (el tema Hamtaro es el principal)
      */
     private fun processTextInput(text: String): SecretResult {
-        hamtaroInput += text.lowercase()
-        
-        // 🎨 Mantener solo últimos 50 caracteres
-        if (hamtaroInput.length > 50) {
-            hamtaroInput = hamtaroInput.takeLast(50)
-        }
-        
-        // 🎨 Verificar frase secreta
-        if (hamtaroInput.contains(HAMTARO_TRIGGER.lowercase())) {
-            return unlockHamtaroTheme()
-        }
-        
+        // El tema Hamtaro ya no es secreto, es el tema principal
         return SecretResult(false, "")
     }
     
@@ -137,29 +124,12 @@ class SecretModes(private val context: Context) {
     }
     
     /**
-     * 🎨 Desbloquear tema Hamtaro
+     * 🎨 El tema Hamtaro es el tema PRINCIPAL
+     * No necesita desbloquearse, siempre está disponible
      */
-    private fun unlockHamtaroTheme(): SecretResult {
-        // 🔐 Verificar si ya está desbloqueado
-        if (securePrefs.isSecretUnlocked(HAMTARO_UNLOCKED)) {
-            return SecretResult(true, "🎨 ¡Tema Hamtaro ya activado!")
-        }
-        
-        try {
-            // 🎨 Activar tema secreto
-            securePrefs.setSecretUnlocked(HAMTARO_UNLOCKED, true)
-            
-            securityManager.logSecurityEvent("SECRET_THEME_UNLOCKED", "Hamtaro phrase success")
-            
-            // 🎨 Limpiar input
-            hamtaroInput = ""
-            
-            return SecretResult(true, "🎨 ¡Tema Hamtaro desbloqueado! Mirania >////<")
-            
-        } catch (e: Exception) {
-            securityManager.logSecurityEvent("SECRET_THEME_ERROR", e.message ?: "")
-            return SecretResult(false, "Error al desbloquear tema")
-        }
+    fun isHamtaroThemeEnabled(): Boolean {
+        // El tema Hamtaro siempre está habilitado (es el tema principal)
+        return true
     }
     
     /**
@@ -195,10 +165,11 @@ class SecretModes(private val context: Context) {
     }
     
     /**
-     * 🎨 Verificar si tema Hamtaro está desbloqueado
+     * 🎨 El tema Hamtaro siempre está disponible (es el tema principal)
      */
     fun isHamtaroThemeUnlocked(): Boolean {
-        return securePrefs.isSecretUnlocked(HAMTARO_UNLOCKED)
+        // Siempre true - el tema Hamtaro es el tema principal, no secreto
+        return true
     }
     
     /**
@@ -220,25 +191,17 @@ class SecretModes(private val context: Context) {
     }
     
     /**
-     * 🎨 Activar tema Hamtaro
+     * 🎨 El tema Hamtaro es el tema principal
+     * Siempre está activo, no necesita activación especial
      */
     fun activateHamtaroTheme(): ThemeResult {
-        if (!isHamtaroThemeUnlocked()) {
-            return ThemeResult(false, "Tema no desbloqueado")
-        }
-        
-        try {
-            // 🎨 Aplicar tema secreto
-            securityManager.logSecurityEvent("HAMTARO_THEME_ACTIVATED", "Secret theme applied")
-            return ThemeResult(true, "🐹 ¡Tema Hamtaro activado! Mirania >////<")
-        } catch (e: Exception) {
-            securityManager.logSecurityEvent("THEME_ERROR", e.message ?: "")
-            return ThemeResult(false, "Error al activar tema")
-        }
+        // El tema Hamtaro siempre está disponible
+        return ThemeResult(true, "🐹 Tema Hamtaro activo - Es el tema principal de la app")
     }
     
     /**
-     * 🔍 Obtener pistas para secretos
+     * 🔍 Obtener pistas para el juego secreto
+     * (El tema Hamtaro no necesita pistas, es el tema principal)
      */
     fun getSecretHints(): SecretHints {
         return SecretHints(
@@ -247,11 +210,7 @@ class SecretModes(private val context: Context) {
             } else {
                 "🎮 Piensa en los clásicos... ↑↑↓↓←→?"
             },
-            themeHint = if (isHamtaroThemeUnlocked()) {
-                "🎨 ¡Ya desbloqueado! Mirania >////<"
-            } else {
-                "🎨 ¿Quién es la más tierna? >////<"
-            },
+            themeHint = "🎨 Tema Hamtaro siempre activo 🐹",
             attemptsRemaining = MAX_ATTEMPTS - securePrefs.getSecretAttempts()
         )
     }

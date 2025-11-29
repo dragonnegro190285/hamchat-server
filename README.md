@@ -11,10 +11,9 @@ Una aplicación de mensajería segura para Sharp Keitai 4 con características e
 - **Sin duplicación de mensajes** - Usa `since_id` para carga incremental
 - Compatible con servidor en la nube (Render) como respaldo
 
-### 🎨 Interfaz Personalizada
-- **Tema Oscuro**: Interfaz elegante y fácil para la vista
-- **Tema Hamtaro**: Se activa escribiendo "Mirania Du bist zartlich >////<" en el chat
-- Colores especiales: naranja, crema y negro inspirados en Hamtaro
+### 🎨 Interfaz Hamtaro (Tema Principal)
+- **Tema Hamtaro por defecto**: Colores naranja, crema y negro inspirados en Hamtaro
+- Interfaz elegante y fácil para la vista
 - Compatible con Android 9 - 16
 
 ### 😊 Emojis Japoneses
@@ -73,12 +72,7 @@ Soporte para emojis estilo japonés:
 
 ## 🎯 Características Especiales
 
-### Activación del Tema Hamtaro
-1. Abre cualquier chat
-2. Escribe exactamente: `Mirania Du bist zartlich >////<`
-3. La interfaz cambiará automáticamente a los colores de Hamtaro
-
-### Acceso al Juego Secreto
+### 🎮 Juego Secreto: Voleibol Hamtaro
 1. Ve a la pantalla de login
 2. Ingresa nombre de usuario
 3. Ingresa la secuencia:
