@@ -17,8 +17,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.hamtaro.hamchat.ui.BaseActivity
 import com.hamtaro.hamchat.network.HamChatApiClient
 import com.hamtaro.hamchat.network.HealthResponse
 import com.hamtaro.hamchat.network.LoginRequest
@@ -55,8 +55,9 @@ data class ContactItem(
 /**
  * 🔒 Secure MainActivity for Ham-Chat
  * Protected against intent injection and spoofing
+ * Extiende BaseActivity para detección de inactividad
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
     
     private lateinit var securityManager: SecurityManager
     private lateinit var intentValidator: IntentValidator

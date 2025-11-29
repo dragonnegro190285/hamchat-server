@@ -86,19 +86,81 @@
 
     </RadioGroup>
 
-    <!-- Sección de Datos (temporal para pruebas) -->
+    <!-- Sección de Ahorro de Batería -->
     <TextView
-        android:id="@+id/data_title"
+        android:id="@+id/battery_title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="32dp"
-        android:text="Datos"
+        android:text="🔋 Ahorro de Batería"
         android:textColor="@color/on_surface_dark"
         android:textSize="18sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/theme_radio_group" />
+
+    <TextView
+        android:id="@+id/inactivity_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Cerrar app por inactividad:"
+        android:textColor="@color/on_surface_dark"
+        android:textSize="14sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/battery_title" />
+
+    <RadioGroup
+        android:id="@+id/inactivity_radio_group"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/inactivity_label">
+
+        <RadioButton
+            android:id="@+id/radio_3min"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="3 min"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/radio_5min"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="5 min"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="12sp" />
+
+        <RadioButton
+            android:id="@+id/radio_10min"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="10 min"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="12sp" />
+
+    </RadioGroup>
+
+    <!-- Sección de Datos (temporal para pruebas) -->
+    <TextView
+        android:id="@+id/data_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Datos"
+        android:textColor="@color/on_surface_dark"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/inactivity_radio_group" />
 
     <Button
         android:id="@+id/btn_clear_database"

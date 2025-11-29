@@ -15,7 +15,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import com.hamtaro.hamchat.R
 import com.hamtaro.hamchat.game.GameWatchActivity
 import com.hamtaro.hamchat.workers.HamChatSyncManager
@@ -35,7 +34,7 @@ data class ChatMessage(
     val isSentToServer: Boolean = false  // Si ya se envió al servidor
 )
 
-class ChatActivity : AppCompatActivity() {
+class ChatActivity : BaseActivity() {
 
     private lateinit var messagesScrollView: ScrollView
     private lateinit var messagesContainer: LinearLayout
@@ -51,8 +50,6 @@ class ChatActivity : AppCompatActivity() {
 
     private val messages = mutableListOf<ChatMessage>()
     private val deletedMessageKeys = mutableSetOf<String>() // Mensajes borrados localmente
-    private val idleHandler = Handler(Looper.getMainLooper())
-    private val idleTimeoutRunnable = Runnable { onIdleTimeout() }
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -197,19 +194,12 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        startIdleTimer()
         startMessagePolling()
     }
 
     override fun onPause() {
         super.onPause()
-        stopIdleTimer()
         stopMessagePolling()
-    }
-
-    override fun onUserInteraction() {
-        super.onUserInteraction()
-        resetIdleTimer()
     }
     
     private fun showErrorDialog(title: String, message: String) {
@@ -469,19 +459,6 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun startIdleTimer() {
-        idleHandler.removeCallbacks(idleTimeoutRunnable)
-        idleHandler.postDelayed(idleTimeoutRunnable, 5 * 60 * 1000L)
-    }
-
-    private fun stopIdleTimer() {
-        idleHandler.removeCallbacks(idleTimeoutRunnable)
-    }
-
-    private fun resetIdleTimer() {
-        startIdleTimer()
-    }
-
     private fun startMessagePolling() {
         if (remoteUserId != null) {
             messagePollingHandler.removeCallbacks(messagePollingRunnable)
@@ -491,14 +468,6 @@ class ChatActivity : AppCompatActivity() {
 
     private fun stopMessagePolling() {
         messagePollingHandler.removeCallbacks(messagePollingRunnable)
-    }
-
-    private fun onIdleTimeout() {
-        try {
-            Toast.makeText(this, "Cerrando Ham-Chat por inactividad", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-        }
-        finishAffinity()
     }
 
     private fun confirmClearPrivateNotes() {

@@ -6,12 +6,12 @@ import android.view.KeyEvent
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import com.hamtaro.hamchat.game.GameWatchActivity
+import com.hamtaro.hamchat.ui.BaseActivity
 import com.hamtaro.hamchat.ui.SecretModes
 import com.hamtaro.hamchat.ui.SecretInputType
 
-class LoginActivity : AppCompatActivity() {
+class LoginActivity : BaseActivity() {
     
     private lateinit var usernameEditText: EditText
     private lateinit var passwordEditText: EditText

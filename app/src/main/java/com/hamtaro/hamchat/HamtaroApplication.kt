@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.hamtaro.hamchat.data.ChatRepository
 import com.hamtaro.hamchat.security.SecureLogger
 import com.hamtaro.hamchat.server.HamChatServerService
+import com.hamtaro.hamchat.utils.InactivityManager
 import com.hamtaro.hamchat.workers.InboxWorker
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +28,9 @@ class HamtaroApplication : Application() {
         
         // Inicializar repositorio de chat
         chatRepository = ChatRepository(this)
+        
+        // Inicializar gestor de inactividad (5 minutos por defecto)
+        InactivityManager.init(this, timeoutMinutes = 5)
         
         SecureLogger.i("HamtaroApplication initialized")
 

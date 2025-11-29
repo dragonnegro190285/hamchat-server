@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.hamtaro.hamchat.server.LocalDatabase
+import com.hamtaro.hamchat.utils.InactivityManager
 import com.hamtaro.toxmessenger.HamtaroApplication
 import com.hamtaro.toxmessenger.R
 
@@ -18,6 +19,7 @@ class SettingsFragment : Fragment() {
     
     private lateinit var languageRadioGroup: RadioGroup
     private lateinit var themeRadioGroup: RadioGroup
+    private lateinit var inactivityRadioGroup: RadioGroup
     private lateinit var clearDatabaseButton: Button
     private lateinit var dbStatsText: TextView
     private lateinit var localDatabase: LocalDatabase
@@ -37,6 +39,7 @@ class SettingsFragment : Fragment() {
         
         languageRadioGroup = view.findViewById(R.id.language_radio_group)
         themeRadioGroup = view.findViewById(R.id.theme_radio_group)
+        inactivityRadioGroup = view.findViewById(R.id.inactivity_radio_group)
         clearDatabaseButton = view.findViewById(R.id.btn_clear_database)
         dbStatsText = view.findViewById(R.id.db_stats)
         
@@ -59,6 +62,14 @@ class SettingsFragment : Fragment() {
             HamtaroApplication.THEME_DARK -> themeRadioGroup.check(R.id.radio_dark)
             HamtaroApplication.THEME_HAMTARO -> themeRadioGroup.check(R.id.radio_hamtaro)
             else -> themeRadioGroup.check(R.id.radio_dark)
+        }
+        
+        // Configurar tiempo de inactividad actual
+        when (InactivityManager.getTimeoutMinutes()) {
+            3 -> inactivityRadioGroup.check(R.id.radio_3min)
+            5 -> inactivityRadioGroup.check(R.id.radio_5min)
+            10 -> inactivityRadioGroup.check(R.id.radio_10min)
+            else -> inactivityRadioGroup.check(R.id.radio_5min)
         }
     }
     
@@ -83,6 +94,18 @@ class SettingsFragment : Fragment() {
             HamtaroApplication.instance.saveTheme(theme)
             Toast.makeText(context, "Theme changed", Toast.LENGTH_SHORT).show()
             activity?.recreate()
+        }
+        
+        // Configuración de tiempo de inactividad
+        inactivityRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            val minutes = when (checkedId) {
+                R.id.radio_3min -> 3
+                R.id.radio_5min -> 5
+                R.id.radio_10min -> 10
+                else -> 5
+            }
+            InactivityManager.setTimeoutMinutes(minutes)
+            Toast.makeText(context, "Cierre por inactividad: $minutes min", Toast.LENGTH_SHORT).show()
         }
         
         // Botón para limpiar base de datos
