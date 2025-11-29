@@ -1,203 +1,182 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background_dark"
-    android:padding="16dp"
+    android:fillViewport="true"
     tools:context=".fragments.SettingsFragment">
 
-    <TextView
-        android:id="@+id/language_title"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/language"
-        android:textColor="@color/on_surface_dark"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <RadioGroup
-        android:id="@+id/language_radio_group"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
         android:orientation="vertical"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/language_title">
+        android:padding="16dp">
 
-        <RadioButton
-            android:id="@+id/radio_spanish"
-            android:layout_width="wrap_content"
+        <!-- Idioma -->
+        <TextView
+            android:id="@+id/language_title"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Español"
-            android:textColor="@color/on_surface_dark" />
+            android:text="@string/language"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="16sp"
+            android:textStyle="bold" />
 
-        <RadioButton
-            android:id="@+id/radio_german"
-            android:layout_width="wrap_content"
+        <RadioGroup
+            android:id="@+id/language_radio_group"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Deutsch"
-            android:textColor="@color/on_surface_dark" />
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
 
-    </RadioGroup>
+            <RadioButton
+                android:id="@+id/radio_spanish"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Español"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="14sp" />
 
-    <TextView
-        android:id="@+id/theme_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="@string/theme"
-        android:textColor="@color/on_surface_dark"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/language_radio_group" />
+            <RadioButton
+                android:id="@+id/radio_german"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Deutsch"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="14sp" />
 
-    <RadioGroup
-        android:id="@+id/theme_radio_group"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/theme_title">
+        </RadioGroup>
 
-        <RadioButton
-            android:id="@+id/radio_dark"
-            android:layout_width="wrap_content"
+        <!-- Tema -->
+        <TextView
+            android:id="@+id/theme_title"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/dark_theme"
-            android:textColor="@color/on_surface_dark" />
+            android:layout_marginTop="16dp"
+            android:text="@string/theme"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="16sp"
+            android:textStyle="bold" />
 
-        <RadioButton
-            android:id="@+id/radio_hamtaro"
-            android:layout_width="wrap_content"
+        <RadioGroup
+            android:id="@+id/theme_radio_group"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/hamtaro_theme"
-            android:textColor="@color/on_surface_dark" />
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
 
-    </RadioGroup>
+            <RadioButton
+                android:id="@+id/radio_dark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/dark_theme"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="14sp" />
 
-    <!-- Sección de Ahorro de Batería -->
-    <TextView
-        android:id="@+id/battery_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="🔋 Ahorro de Batería"
-        android:textColor="@color/on_surface_dark"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/theme_radio_group" />
+            <RadioButton
+                android:id="@+id/radio_hamtaro"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/hamtaro_theme"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="14sp" />
 
-    <TextView
-        android:id="@+id/inactivity_label"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Cerrar app por inactividad:"
-        android:textColor="@color/on_surface_dark"
-        android:textSize="14sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/battery_title" />
+        </RadioGroup>
 
-    <RadioGroup
-        android:id="@+id/inactivity_radio_group"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/inactivity_label">
-
-        <RadioButton
-            android:id="@+id/radio_3min"
-            android:layout_width="wrap_content"
+        <!-- Ahorro de Batería -->
+        <TextView
+            android:id="@+id/battery_title"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="3 min"
+            android:layout_marginTop="16dp"
+            android:text="🔋 Ahorro de Batería"
+            android:textColor="@color/on_surface_dark"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/inactivity_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Cerrar por inactividad:"
             android:textColor="@color/on_surface_dark"
             android:textSize="12sp" />
 
-        <RadioButton
-            android:id="@+id/radio_5min"
-            android:layout_width="wrap_content"
+        <RadioGroup
+            android:id="@+id/inactivity_radio_group"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="5 min"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/radio_3min"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3m"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="12sp" />
+
+            <RadioButton
+                android:id="@+id/radio_5min"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="5m"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="12sp" />
+
+            <RadioButton
+                android:id="@+id/radio_10min"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="10m"
+                android:textColor="@color/on_surface_dark"
+                android:textSize="12sp" />
+
+        </RadioGroup>
+
+        <!-- Sección de Datos -->
+        <TextView
+            android:id="@+id/data_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="🗄️ Datos"
             android:textColor="@color/on_surface_dark"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/db_stats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Usuarios: 0 | Mensajes: 0"
+            android:textColor="@color/message_timestamp"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_clear_database"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="#FF5722"
+            android:text="🗑️ Limpiar BD"
+            android:textColor="@android:color/white"
             android:textSize="12sp" />
 
-        <RadioButton
-            android:id="@+id/radio_10min"
-            android:layout_width="wrap_content"
+        <!-- Versión -->
+        <TextView
+            android:id="@+id/version_info"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="10 min"
-            android:textColor="@color/on_surface_dark"
-            android:textSize="12sp" />
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:text="Ham-Chat v1.0\nSharp Keitai 4"
+            android:textColor="@color/message_timestamp"
+            android:textSize="10sp" />
 
-    </RadioGroup>
+    </LinearLayout>
 
-    <!-- Sección de Datos (temporal para pruebas) -->
-    <TextView
-        android:id="@+id/data_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Datos"
-        android:textColor="@color/on_surface_dark"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/inactivity_radio_group" />
-
-    <Button
-        android:id="@+id/btn_clear_database"
-        android:layout_width="0dp"
-        android:layout_height="48dp"
-        android:layout_marginTop="12dp"
-        android:backgroundTint="#FF5722"
-        android:text="🗑️ Limpiar Base de Datos"
-        android:textColor="@android:color/white"
-        android:textSize="14sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/data_title" />
-
-    <TextView
-        android:id="@+id/db_stats"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Usuarios: 0 | Mensajes: 0 | Contactos: 0"
-        android:textColor="@color/message_timestamp"
-        android:textSize="12sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/btn_clear_database" />
-
-    <TextView
-        android:id="@+id/version_info"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:text="Hamtaro Chat v1.0\nFor Sharp Keitai 4"
-        android:textAlignment="center"
-        android:textColor="@color/message_timestamp"
-        android:textSize="12sp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>
