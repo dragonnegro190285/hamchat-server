@@ -29,11 +29,18 @@ private const val KEY_PRIVATE_CHAT = "private_chat_hamtaro"
 private const val KEY_DRAFT_PREFIX = "draft_"  // Borradores de mensajes
 
 /**
- * Modelo de mensaje con campos para sincronización robusta:
- * - sentAt: Fecha/hora exacta de envío local
- * - receivedAt: Fecha/hora de recepción (null si no recibido)
- * - isSentToServer: true si ya se envió al servidor (no en cola)
- * - isDelivered: true si el destinatario lo recibió
+ * Estado del mensaje para mostrar indicadores visuales
+ */
+enum class MessageStatus {
+    SENDING,    // ⏳ Enviando (en cola)
+    SENT,       // ✓ Enviado al servidor
+    DELIVERED,  // ✓✓ Entregado al destinatario
+    READ,       // ✓✓ Leído por el destinatario (azul)
+    FAILED      // ❌ Error al enviar
+}
+
+/**
+ * Modelo de mensaje con campos para sincronización robusta y funciones avanzadas
  */
 data class ChatMessage(
     val sender: String, 
@@ -43,9 +50,41 @@ data class ChatMessage(
     val localId: String = "",           // ID local único para evitar duplicados
     val isSentToServer: Boolean = false, // Si ya se envió al servidor (no en cola)
     val isDelivered: Boolean = false,   // Si el destinatario lo recibió
+    val isRead: Boolean = false,        // Si el destinatario lo leyó
     val sentAt: Long = System.currentTimeMillis(),    // Timestamp exacto de envío
-    val receivedAt: Long? = null        // Timestamp de recepción (null si no recibido)
-)
+    val receivedAt: Long? = null,       // Timestamp de recepción (null si no recibido)
+    val replyToId: String? = null,      // ID del mensaje al que responde (null si no es respuesta)
+    val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
+    val isForwarded: Boolean = false,   // Si es un mensaje reenviado
+    val isStarred: Boolean = false      // Si está marcado como favorito/importante
+) {
+    /**
+     * Obtiene el estado actual del mensaje para mostrar indicador visual
+     */
+    fun getStatus(): MessageStatus {
+        return when {
+            sender != "Yo" -> MessageStatus.READ  // Mensajes recibidos siempre "leídos"
+            isRead -> MessageStatus.READ
+            isDelivered -> MessageStatus.DELIVERED
+            isSentToServer -> MessageStatus.SENT
+            serverId > 0 -> MessageStatus.SENT
+            else -> MessageStatus.SENDING
+        }
+    }
+    
+    /**
+     * Obtiene el icono de estado del mensaje (estilo Ham-Chat)
+     */
+    fun getStatusIcon(): String {
+        return when (getStatus()) {
+            MessageStatus.SENDING -> "🕐"    // Reloj - enviando
+            MessageStatus.SENT -> "📤"       // Enviado
+            MessageStatus.DELIVERED -> "📬"  // Buzón con carta - entregado
+            MessageStatus.READ -> "👀"       // Ojos - leído
+            MessageStatus.FAILED -> "⚠️"    // Advertencia - error
+        }
+    }
+}
 
 class ChatActivity : BaseActivity() {
 
@@ -68,6 +107,13 @@ class ChatActivity : BaseActivity() {
     private var currentDraft: String = ""
     private val draftSaveHandler = Handler(Looper.getMainLooper())
     private var draftSaveRunnable: Runnable? = null
+    
+    // Sistema de respuestas
+    private var replyingToMessage: ChatMessage? = null
+    private var replyPreviewContainer: LinearLayout? = null
+    
+    // Mensajes favoritos/destacados
+    private val starredMessages = mutableSetOf<String>()
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -126,6 +172,12 @@ class ChatActivity : BaseActivity() {
                 }
             }
 
+            // Cargar mensajes destacados
+            loadStarredMessages()
+            
+            // Verificar si hay mensaje para reenviar
+            checkForForwardedMessage()
+            
             if (remoteUserId != null) {
                 // Cargar lista de mensajes borrados localmente
                 loadDeletedKeys()
@@ -163,13 +215,28 @@ class ChatActivity : BaseActivity() {
                 val localId = generateLocalId()
                 val now = System.currentTimeMillis()
                 
+                // Verificar si es respuesta a otro mensaje
+                val replyTo = replyingToMessage
+                val replyToId = replyTo?.localId?.ifEmpty { replyTo.serverId.toString() }
+                val replyToContent = replyTo?.content?.take(100)
+                
+                // Verificar si hay mensaje para reenviar
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val isForwarding = prefs.getBoolean("forward_message_pending", false)
+                if (isForwarding) {
+                    prefs.edit().remove("forward_message_pending").remove("forward_message_content").apply()
+                }
+                
                 val message = ChatMessage(
                     sender = "Yo",
                     content = text,
                     timestamp = now,
                     serverId = 0,  // Aún no está en servidor
                     localId = localId,
-                    isSentToServer = false
+                    isSentToServer = false,
+                    replyToId = replyToId,
+                    replyToContent = replyToContent,
+                    isForwarded = isForwarding
                 )
                 messages.add(message)
                 addMessageToContainer(message)
@@ -177,6 +244,7 @@ class ChatActivity : BaseActivity() {
 
                 messageEditText.setText("")
                 clearDraft()  // Limpiar borrador al enviar
+                cancelReply() // Limpiar modo respuesta
                 scrollToBottom()
 
                 val toastText = when {
@@ -471,59 +539,403 @@ class ChatActivity : BaseActivity() {
     }
 
     private fun addMessageToContainer(message: ChatMessage) {
-        val messageLayout = LinearLayout(this).apply {
+        val isMyMessage = message.sender == "Yo"
+        val isStarred = starredMessages.contains(message.localId)
+        
+        // Contenedor principal con alineación según remitente
+        val outerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(8, 4, 8, 4)
+            gravity = if (isMyMessage) android.view.Gravity.END else android.view.Gravity.START
+        }
+        
+        // Burbuja del mensaje
+        val bubbleLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 8, 16, 8)
+            setPadding(12, 8, 12, 6)
+            
+            // Estilo de burbuja según remitente (colores propios de Ham-Chat)
+            val bgColor = if (isMyMessage) 0xFFFFE4B5.toInt() else 0xFFF0F0F0.toInt() // Naranja claro vs gris
+            setBackgroundColor(bgColor)
+            
+            // Máximo 80% del ancho de pantalla
+            val maxWidth = (resources.displayMetrics.widthPixels * 0.8).toInt()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                this.width = LinearLayout.LayoutParams.WRAP_CONTENT
+            }
+        }
+        
+        // Si es mensaje reenviado, mostrar indicador
+        if (message.isForwarded) {
+            val forwardedView = TextView(this).apply {
+                text = "↪️ Reenviado"
+                textSize = 11f
+                setTextColor(0xFF888888.toInt())
+                setPadding(0, 0, 0, 4)
+            }
+            bubbleLayout.addView(forwardedView)
+        }
+        
+        // Si es respuesta a otro mensaje, mostrar preview
+        if (!message.replyToContent.isNullOrEmpty()) {
+            val replyContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(8, 4, 8, 4)
+                setBackgroundColor(0x20000000) // Fondo semi-transparente
+            }
+            
+            val replyLabel = TextView(this).apply {
+                text = "↩️ Respuesta"
+                textSize = 10f
+                setTextColor(0xFF666666.toInt())
+            }
+            
+            val replyPreview = TextView(this).apply {
+                text = message.replyToContent.take(50) + if (message.replyToContent.length > 50) "..." else ""
+                textSize = 12f
+                setTextColor(0xFF888888.toInt())
+                maxLines = 2
+            }
+            
+            replyContainer.addView(replyLabel)
+            replyContainer.addView(replyPreview)
+            bubbleLayout.addView(replyContainer)
+            
+            // Espacio entre reply y contenido
+            val spacer = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 6
+                )
+            }
+            bubbleLayout.addView(spacer)
+        }
+        
+        // Nombre del remitente (solo para mensajes recibidos)
+        if (!isMyMessage) {
+            val senderView = TextView(this).apply {
+                text = message.sender
+                textSize = 12f
+                setTextColor(0xFFFF8C00.toInt()) // Naranja Ham-Chat
+                setPadding(0, 0, 0, 2)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            bubbleLayout.addView(senderView)
         }
 
-        val senderView = TextView(this).apply {
-            text = if (message.sender == "Yo") "Yo" else message.sender
-            textSize = 12f
-            setTextColor(0xFF666666.toInt())
-            setPadding(0, 0, 0, 4)
-        }
-
+        // Contenido del mensaje
         val contentView = TextView(this).apply {
             text = message.content
-            textSize = 16f
-            setTextColor(0xFF000000.toInt())
-            setPadding(12, 8, 12, 8)
-            
-            // Style based on sender
-            if (message.sender == "Yo") {
-                setBackgroundColor(0xFFE3F2FD.toInt()) // Light blue for my messages
-            } else {
-                setBackgroundColor(0xFFF5F5F5.toInt()) // Light gray for others
-            }
+            textSize = 15f
+            setTextColor(0xFF1A1A1A.toInt())
+            setTextIsSelectable(true) // Permitir seleccionar texto
         }
-
-        val timeView = TextView(this).apply {
-            val time = android.text.format.DateFormat.format("HH:mm", message.timestamp)
-            text = time
-            textSize = 10f
-            setTextColor(0xFF999999.toInt())
+        bubbleLayout.addView(contentView)
+        
+        // Fila inferior: hora + estado + estrella
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.END
             setPadding(0, 4, 0, 0)
         }
-
-        messageLayout.addView(senderView)
-        messageLayout.addView(contentView)
-        messageLayout.addView(timeView)
-
-        if (isPrivateChat) {
-            messageLayout.setOnLongClickListener {
-                confirmDeleteSingleNote(message)
-                true
+        
+        // Estrella si está marcado
+        if (isStarred) {
+            val starView = TextView(this).apply {
+                text = "⭐"
+                textSize = 10f
+                setPadding(0, 0, 4, 0)
             }
-        } else {
-            // Para cualquier chat no privado (local o remoto), permitir borrar mensajes
-            // de forma local mediante pulsación larga.
-            messageLayout.setOnLongClickListener {
-                confirmDeleteSingleRemoteMessage(message)
-                true
+            bottomRow.addView(starView)
+        }
+        
+        // Hora del mensaje
+        val timeView = TextView(this).apply {
+            val time = android.text.format.DateFormat.format("HH:mm", message.sentAt)
+            text = time.toString()
+            textSize = 10f
+            setTextColor(0xFF888888.toInt())
+        }
+        bottomRow.addView(timeView)
+        
+        // Estado del mensaje (solo para mis mensajes)
+        if (isMyMessage && remoteUserId != null) {
+            val statusView = TextView(this).apply {
+                text = " ${message.getStatusIcon()}"
+                textSize = 10f
             }
+            bottomRow.addView(statusView)
+        }
+        
+        bubbleLayout.addView(bottomRow)
+        outerLayout.addView(bubbleLayout)
+        
+        // Menú de opciones al mantener presionado
+        outerLayout.setOnLongClickListener {
+            showMessageOptionsDialog(message)
+            true
+        }
+        
+        // Click simple para responder rápido
+        outerLayout.setOnClickListener {
+            // Doble click para responder (implementar con handler)
         }
 
-        messagesContainer.addView(messageLayout)
+        messagesContainer.addView(outerLayout)
+    }
+    
+    /**
+     * Muestra diálogo con opciones para el mensaje (estilo Ham-Chat)
+     */
+    private fun showMessageOptionsDialog(message: ChatMessage) {
+        val isMyMessage = message.sender == "Yo"
+        val isStarred = starredMessages.contains(message.localId)
+        
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        
+        // Responder
+        options.add("↩️ Responder")
+        actions.add { startReplyToMessage(message) }
+        
+        // Copiar
+        options.add("📋 Copiar texto")
+        actions.add { 
+            copyToClipboard(message.content)
+            Toast.makeText(this, "Texto copiado", Toast.LENGTH_SHORT).show()
+        }
+        
+        // Reenviar
+        options.add("↪️ Reenviar")
+        actions.add { forwardMessage(message) }
+        
+        // Destacar/Quitar destacado
+        if (isStarred) {
+            options.add("⭐ Quitar de destacados")
+            actions.add { toggleStarMessage(message) }
+        } else {
+            options.add("⭐ Destacar mensaje")
+            actions.add { toggleStarMessage(message) }
+        }
+        
+        // Info del mensaje
+        options.add("ℹ️ Info del mensaje")
+        actions.add { showMessageInfo(message) }
+        
+        // Eliminar
+        if (isPrivateChat) {
+            options.add("🗑️ Eliminar nota")
+            actions.add { confirmDeleteSingleNote(message) }
+        } else {
+            options.add("🗑️ Eliminar (solo aquí)")
+            actions.add { confirmDeleteSingleRemoteMessage(message) }
+        }
+        
+        // Cancelar
+        options.add("❌ Cancelar")
+        actions.add { /* No hacer nada */ }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📨 Opciones del mensaje")
+            .setItems(options.toTypedArray()) { _, which ->
+                if (which < actions.size) {
+                    actions[which]()
+                }
+            }
+            .show()
+    }
+    
+    /**
+     * Inicia el modo de respuesta a un mensaje
+     */
+    private fun startReplyToMessage(message: ChatMessage) {
+        replyingToMessage = message
+        
+        // Mostrar preview de respuesta arriba del campo de texto
+        showReplyPreview(message)
+        
+        // Enfocar el campo de texto
+        messageEditText.requestFocus()
+        
+        Toast.makeText(this, "Respondiendo a: ${message.content.take(30)}...", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Muestra el preview del mensaje al que se está respondiendo
+     */
+    private fun showReplyPreview(message: ChatMessage) {
+        // Remover preview anterior si existe
+        replyPreviewContainer?.let { messagesContainer.parent?.let { parent -> 
+            if (parent is LinearLayout) {
+                parent.removeView(replyPreviewContainer)
+            }
+        }}
+        
+        replyPreviewContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(0xFFE8E8E8.toInt())
+            setPadding(12, 8, 12, 8)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        
+        val previewText = TextView(this).apply {
+            text = "↩️ ${message.sender}: ${message.content.take(40)}${if (message.content.length > 40) "..." else ""}"
+            textSize = 12f
+            setTextColor(0xFF666666.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        
+        val cancelButton = TextView(this).apply {
+            text = "✕"
+            textSize = 18f
+            setTextColor(0xFF888888.toInt())
+            setPadding(16, 0, 0, 0)
+            setOnClickListener { cancelReply() }
+        }
+        
+        replyPreviewContainer?.addView(previewText)
+        replyPreviewContainer?.addView(cancelButton)
+        
+        // Insertar antes del campo de texto (buscar el padre)
+        val inputContainer = messageEditText.parent as? LinearLayout
+        inputContainer?.let {
+            val index = it.indexOfChild(messageEditText)
+            if (index >= 0) {
+                it.addView(replyPreviewContainer, index)
+            }
+        }
+    }
+    
+    /**
+     * Cancela el modo de respuesta
+     */
+    private fun cancelReply() {
+        replyingToMessage = null
+        replyPreviewContainer?.let { preview ->
+            (preview.parent as? LinearLayout)?.removeView(preview)
+        }
+        replyPreviewContainer = null
+    }
+    
+    /**
+     * Reenvía un mensaje a otro contacto
+     */
+    private fun forwardMessage(message: ChatMessage) {
+        // Guardar mensaje para reenviar en preferencias temporales
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit()
+            .putString("forward_message_content", message.content)
+            .putBoolean("forward_message_pending", true)
+            .apply()
+        
+        Toast.makeText(this, "Selecciona un contacto para reenviar", Toast.LENGTH_LONG).show()
+        
+        // Volver a la lista de contactos
+        finish()
+    }
+    
+    /**
+     * Alterna el estado de destacado de un mensaje
+     */
+    private fun toggleStarMessage(message: ChatMessage) {
+        val key = message.localId.ifEmpty { "${message.serverId}" }
+        
+        if (starredMessages.contains(key)) {
+            starredMessages.remove(key)
+            Toast.makeText(this, "Mensaje quitado de destacados", Toast.LENGTH_SHORT).show()
+        } else {
+            starredMessages.add(key)
+            Toast.makeText(this, "⭐ Mensaje destacado", Toast.LENGTH_SHORT).show()
+        }
+        
+        // Guardar en preferencias
+        saveStarredMessages()
+        
+        // Refrescar vista
+        renderMessages()
+    }
+    
+    /**
+     * Muestra información detallada del mensaje
+     */
+    private fun showMessageInfo(message: ChatMessage) {
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault())
+        
+        val info = StringBuilder()
+        info.append("📨 Información del mensaje\n\n")
+        info.append("👤 De: ${message.sender}\n")
+        info.append("🕐 Enviado: ${sdf.format(java.util.Date(message.sentAt))}\n")
+        
+        if (message.receivedAt != null) {
+            info.append("📬 Recibido: ${sdf.format(java.util.Date(message.receivedAt))}\n")
+        }
+        
+        info.append("📊 Estado: ${message.getStatusIcon()} ${message.getStatus().name}\n")
+        
+        if (message.serverId > 0) {
+            info.append("🔢 ID servidor: ${message.serverId}\n")
+        }
+        
+        if (message.localId.isNotEmpty()) {
+            info.append("🏷️ ID local: ${message.localId.take(8)}...\n")
+        }
+        
+        if (message.isForwarded) {
+            info.append("↪️ Mensaje reenviado\n")
+        }
+        
+        if (message.replyToContent != null) {
+            info.append("↩️ Respuesta a: ${message.replyToContent.take(30)}...\n")
+        }
+        
+        info.append("\n📝 Contenido:\n${message.content}")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("ℹ️ Info del mensaje")
+            .setMessage(info.toString())
+            .setPositiveButton("Cerrar", null)
+            .setNeutralButton("Copiar info") { _, _ ->
+                copyToClipboard(info.toString())
+                Toast.makeText(this, "Info copiada", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+    
+    /**
+     * Guarda los mensajes destacados
+     */
+    private fun saveStarredMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().putStringSet("starred_$contactId", starredMessages).apply()
+    }
+    
+    /**
+     * Carga los mensajes destacados
+     */
+    private fun loadStarredMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val saved = prefs.getStringSet("starred_$contactId", emptySet()) ?: emptySet()
+        starredMessages.clear()
+        starredMessages.addAll(saved)
+    }
+    
+    /**
+     * Verifica si hay un mensaje pendiente para reenviar
+     */
+    private fun checkForForwardedMessage() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val isPending = prefs.getBoolean("forward_message_pending", false)
+        val content = prefs.getString("forward_message_content", null)
+        
+        if (isPending && !content.isNullOrEmpty()) {
+            // Poner el contenido en el campo de texto
+            messageEditText.setText(content)
+            messageEditText.setSelection(content.length)
+            
+            Toast.makeText(this, "↪️ Mensaje listo para reenviar", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun scrollToBottom() {
