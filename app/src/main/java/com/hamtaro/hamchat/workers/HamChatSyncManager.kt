@@ -19,6 +19,7 @@ private const val PREFS_NAME = "hamchat_settings"
 private const val KEY_AUTH_USER_ID = "auth_user_id"
 private const val KEY_AUTH_TOKEN = "auth_token"
 private const val KEY_PENDING_PREFIX = "pending_"
+private const val KEY_LAST_MSG_PREFIX = "last_msg_id_"
 
 /**
  * HamChatSyncManager
@@ -63,7 +64,24 @@ object HamChatSyncManager {
     }
 
     /**
+     * Obtener el último ID de mensaje guardado para una conversación
+     */
+    fun getLastMessageId(context: Context, remoteUserId: Int): Int {
+        val prefs = getPrefs(context)
+        return prefs.getInt("$KEY_LAST_MSG_PREFIX$remoteUserId", 0)
+    }
+
+    /**
+     * Guardar el último ID de mensaje para una conversación
+     */
+    fun saveLastMessageId(context: Context, remoteUserId: Int, messageId: Int) {
+        val prefs = getPrefs(context)
+        prefs.edit().putInt("$KEY_LAST_MSG_PREFIX$remoteUserId", messageId).apply()
+    }
+
+    /**
      * Cargar mensajes desde el servidor para un chat remoto.
+     * Usa carga incremental con since_id para evitar duplicados.
      */
     fun loadMessagesFromServer(
         context: Context,
@@ -81,25 +99,61 @@ object HamChatSyncManager {
             return
         }
 
-        try {
-            HamChatApiClient.api.getMessages("Bearer $token", remoteUserId, 50)
-                .enqueue(object : Callback<List<MessageDto>> {
-                    override fun onResponse(
-                        call: Call<List<MessageDto>>,
-                        response: Response<List<MessageDto>>
-                    ) {
-                        val body = response.body()
-                        if (response.isSuccessful && body != null) {
-                            onSuccess(RemoteMessagesResult(currentUserId, body))
-                        } else {
-                            onHttpError(response.code())
-                        }
-                    }
+        val sinceId = getLastMessageId(context, remoteUserId)
+        val authHeader = "Bearer $token"
 
-                    override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
-                        onNetworkError(t)
-                    }
-                })
+        try {
+            if (sinceId == 0) {
+                // Primera carga: obtener todos los mensajes
+                HamChatApiClient.api.getMessages(authHeader, remoteUserId, 50)
+                    .enqueue(object : Callback<List<MessageDto>> {
+                        override fun onResponse(
+                            call: Call<List<MessageDto>>,
+                            response: Response<List<MessageDto>>
+                        ) {
+                            val body = response.body()
+                            if (response.isSuccessful && body != null) {
+                                // Guardar el último ID
+                                val maxId = body.maxOfOrNull { it.id } ?: 0
+                                if (maxId > 0) {
+                                    saveLastMessageId(context, remoteUserId, maxId)
+                                }
+                                onSuccess(RemoteMessagesResult(currentUserId, body))
+                            } else {
+                                onHttpError(response.code())
+                            }
+                        }
+
+                        override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
+                            onNetworkError(t)
+                        }
+                    })
+            } else {
+                // Carga incremental: solo mensajes nuevos desde sinceId
+                HamChatApiClient.api.getMessagesSince(authHeader, remoteUserId, sinceId)
+                    .enqueue(object : Callback<List<MessageDto>> {
+                        override fun onResponse(
+                            call: Call<List<MessageDto>>,
+                            response: Response<List<MessageDto>>
+                        ) {
+                            val body = response.body()
+                            if (response.isSuccessful && body != null) {
+                                // Actualizar el último ID si hay mensajes nuevos
+                                val maxId = body.maxOfOrNull { it.id } ?: sinceId
+                                if (maxId > sinceId) {
+                                    saveLastMessageId(context, remoteUserId, maxId)
+                                }
+                                onSuccess(RemoteMessagesResult(currentUserId, body))
+                            } else {
+                                onHttpError(response.code())
+                            }
+                        }
+
+                        override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
+                            onNetworkError(t)
+                        }
+                    })
+            }
         } catch (e: Exception) {
             onNetworkError(e)
         }

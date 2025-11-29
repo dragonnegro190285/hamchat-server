@@ -243,6 +243,8 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    private var isFirstLoad = true
+
     private fun loadMessagesFromServer() {
         val remoteId = remoteUserId
         if (remoteId == null) {
@@ -251,29 +253,55 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
+        // Si es la primera carga, cargar mensajes locales primero
+        if (isFirstLoad) {
+            loadMessages()
+        }
+
         HamChatSyncManager.loadMessagesFromServer(
             context = this,
             remoteUserId = remoteId,
             onSuccess = { result ->
-                messages.clear()
+                if (isFirstLoad) {
+                    // Primera carga: reemplazar todo con los mensajes del servidor
+                    messages.clear()
+                    isFirstLoad = false
+                }
+                
+                // Obtener IDs existentes para evitar duplicados
+                val existingIds = messages.map { it.timestamp }.toSet()
+                
                 for (m in result.messages) {
+                    val msgId = m.id.toLong()
+                    // Evitar duplicados
+                    if (existingIds.contains(msgId)) continue
+                    
                     val senderLabel = if (m.sender_id == result.currentUserId) "Yo" else contactName
                     val msgKey = "${m.sender_id}_${m.content}_${m.id}"
+                    
                     // Filtrar mensajes borrados localmente
                     if (deletedMessageKeys.contains(msgKey)) continue
+                    
                     messages.add(
                         ChatMessage(
                             sender = senderLabel,
                             content = m.content,
-                            timestamp = m.id.toLong() // Usar ID del servidor como timestamp para identificar
+                            timestamp = msgId // Usar ID del servidor como timestamp para identificar
                         )
                     )
                 }
+                
+                // Ordenar por timestamp/id
+                messages.sortBy { it.timestamp }
+                
                 saveMessages()
                 renderMessages()
             },
             onHttpError = { code ->
-                loadMessages()
+                if (isFirstLoad) {
+                    loadMessages()
+                    isFirstLoad = false
+                }
                 renderMessages()
                 val msg = if (code == 401) {
                     "No se pudieron cargar mensajes del servidor (sesión no válida, código 401)"
@@ -287,7 +315,10 @@ class ChatActivity : AppCompatActivity() {
                 ).show()
             },
             onNetworkError = {
-                loadMessages()
+                if (isFirstLoad) {
+                    loadMessages()
+                    isFirstLoad = false
+                }
                 renderMessages()
                 Toast.makeText(
                     this@ChatActivity,
@@ -296,7 +327,10 @@ class ChatActivity : AppCompatActivity() {
                 ).show()
             },
             onAuthMissing = {
-                loadMessages()
+                if (isFirstLoad) {
+                    loadMessages()
+                    isFirstLoad = false
+                }
                 renderMessages()
                 Toast.makeText(
                     this@ChatActivity,
