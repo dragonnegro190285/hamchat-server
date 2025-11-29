@@ -81,7 +81,8 @@ object HamChatSyncManager {
 
     /**
      * Cargar mensajes desde el servidor para un chat remoto.
-     * Usa carga incremental con since_id para evitar duplicados.
+     * SIEMPRE carga todos los mensajes porque el servidor en internet es la fuente de verdad.
+     * El cliente reemplaza su lista local con lo que devuelve el servidor.
      */
     fun loadMessagesFromServer(
         context: Context,
@@ -99,61 +100,29 @@ object HamChatSyncManager {
             return
         }
 
-        val sinceId = getLastMessageId(context, remoteUserId)
         val authHeader = "Bearer $token"
 
         try {
-            if (sinceId == 0) {
-                // Primera carga: obtener todos los mensajes
-                HamChatApiClient.api.getMessages(authHeader, remoteUserId, 50)
-                    .enqueue(object : Callback<List<MessageDto>> {
-                        override fun onResponse(
-                            call: Call<List<MessageDto>>,
-                            response: Response<List<MessageDto>>
-                        ) {
-                            val body = response.body()
-                            if (response.isSuccessful && body != null) {
-                                // Guardar el último ID
-                                val maxId = body.maxOfOrNull { it.id } ?: 0
-                                if (maxId > 0) {
-                                    saveLastMessageId(context, remoteUserId, maxId)
-                                }
-                                onSuccess(RemoteMessagesResult(currentUserId, body))
-                            } else {
-                                onHttpError(response.code())
-                            }
+            // Siempre cargar todos los mensajes del servidor
+            // El servidor en internet es la fuente de verdad
+            HamChatApiClient.api.getMessages(authHeader, remoteUserId, 100)
+                .enqueue(object : Callback<List<MessageDto>> {
+                    override fun onResponse(
+                        call: Call<List<MessageDto>>,
+                        response: Response<List<MessageDto>>
+                    ) {
+                        val body = response.body()
+                        if (response.isSuccessful && body != null) {
+                            onSuccess(RemoteMessagesResult(currentUserId, body))
+                        } else {
+                            onHttpError(response.code())
                         }
+                    }
 
-                        override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
-                            onNetworkError(t)
-                        }
-                    })
-            } else {
-                // Carga incremental: solo mensajes nuevos desde sinceId
-                HamChatApiClient.api.getMessagesSince(authHeader, remoteUserId, sinceId)
-                    .enqueue(object : Callback<List<MessageDto>> {
-                        override fun onResponse(
-                            call: Call<List<MessageDto>>,
-                            response: Response<List<MessageDto>>
-                        ) {
-                            val body = response.body()
-                            if (response.isSuccessful && body != null) {
-                                // Actualizar el último ID si hay mensajes nuevos
-                                val maxId = body.maxOfOrNull { it.id } ?: sinceId
-                                if (maxId > sinceId) {
-                                    saveLastMessageId(context, remoteUserId, maxId)
-                                }
-                                onSuccess(RemoteMessagesResult(currentUserId, body))
-                            } else {
-                                onHttpError(response.code())
-                            }
-                        }
-
-                        override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
-                            onNetworkError(t)
-                        }
-                    })
-            }
+                    override fun onFailure(call: Call<List<MessageDto>>, t: Throwable) {
+                        onNetworkError(t)
+                    }
+                })
         } catch (e: Exception) {
             onNetworkError(e)
         }

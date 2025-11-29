@@ -244,6 +244,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private var isFirstLoad = true
+    private var hasLoadedFromServer = false
 
     private fun loadMessagesFromServer() {
         val remoteId = remoteUserId
@@ -253,29 +254,24 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
-        // Si es la primera carga, cargar mensajes locales primero
-        if (isFirstLoad) {
+        // Primera carga: mostrar mensajes locales mientras se conecta
+        if (isFirstLoad && !hasLoadedFromServer) {
             loadMessages()
+            renderMessages()
         }
 
         HamChatSyncManager.loadMessagesFromServer(
             context = this,
             remoteUserId = remoteId,
             onSuccess = { result ->
-                if (isFirstLoad) {
-                    // Primera carga: reemplazar todo con los mensajes del servidor
-                    messages.clear()
-                    isFirstLoad = false
-                }
-                
-                // Obtener IDs existentes para evitar duplicados
-                val existingIds = messages.map { it.timestamp }.toSet()
+                // Éxito del servidor: REEMPLAZAR todo con datos del servidor
+                // El servidor es la fuente de verdad
+                messages.clear()
+                hasLoadedFromServer = true
+                isFirstLoad = false
                 
                 for (m in result.messages) {
                     val msgId = m.id.toLong()
-                    // Evitar duplicados
-                    if (existingIds.contains(msgId)) continue
-                    
                     val senderLabel = if (m.sender_id == result.currentUserId) "Yo" else contactName
                     val msgKey = "${m.sender_id}_${m.content}_${m.id}"
                     
@@ -286,57 +282,48 @@ class ChatActivity : AppCompatActivity() {
                         ChatMessage(
                             sender = senderLabel,
                             content = m.content,
-                            timestamp = msgId // Usar ID del servidor como timestamp para identificar
+                            timestamp = msgId
                         )
                     )
                 }
                 
-                // Ordenar por timestamp/id
+                // Ordenar por ID del servidor
                 messages.sortBy { it.timestamp }
                 
                 saveMessages()
                 renderMessages()
             },
             onHttpError = { code ->
-                if (isFirstLoad) {
-                    loadMessages()
+                // Error HTTP: NO recargar mensajes locales si ya se cargaron
+                if (isFirstLoad && !hasLoadedFromServer) {
                     isFirstLoad = false
+                    // Ya se mostraron los mensajes locales arriba
                 }
-                renderMessages()
                 val msg = if (code == 401) {
-                    "No se pudieron cargar mensajes del servidor (sesión no válida, código 401)"
+                    "Sesión no válida (401)"
                 } else {
-                    "No se pudieron cargar mensajes del servidor (código $code)"
+                    "Error del servidor ($code)"
                 }
-                Toast.makeText(
-                    this@ChatActivity,
-                    msg,
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_SHORT).show()
             },
             onNetworkError = {
-                if (isFirstLoad) {
-                    loadMessages()
+                // Error de red: NO recargar mensajes locales si ya se cargaron
+                if (isFirstLoad && !hasLoadedFromServer) {
                     isFirstLoad = false
+                    // Ya se mostraron los mensajes locales arriba
                 }
-                renderMessages()
-                Toast.makeText(
-                    this@ChatActivity,
-                    "Error de red al cargar mensajes",
-                    Toast.LENGTH_SHORT
-                ).show()
+                // No mostrar toast en cada polling fallido, solo la primera vez
+                if (!hasLoadedFromServer) {
+                    Toast.makeText(this@ChatActivity, "Sin conexión al servidor", Toast.LENGTH_SHORT).show()
+                }
             },
             onAuthMissing = {
-                if (isFirstLoad) {
-                    loadMessages()
+                if (isFirstLoad && !hasLoadedFromServer) {
                     isFirstLoad = false
                 }
-                renderMessages()
-                Toast.makeText(
-                    this@ChatActivity,
-                    "Sesión del servidor no disponible, usando solo mensajes locales",
-                    Toast.LENGTH_SHORT
-                ).show()
+                if (!hasLoadedFromServer) {
+                    Toast.makeText(this@ChatActivity, "Sesión no disponible", Toast.LENGTH_SHORT).show()
+                }
             }
         )
     }
