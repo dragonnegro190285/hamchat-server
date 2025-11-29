@@ -352,12 +352,27 @@ class ChatActivity : BaseActivity() {
                     isFirstLoad = false
                     // Ya se mostraron los mensajes locales arriba
                 }
-                val msg = if (code == 401) {
-                    "Sesión no válida (401)"
+                
+                if (code == 401) {
+                    // Intentar auto-relogin
+                    HamChatSyncManager.tryAutoRelogin(
+                        context = this@ChatActivity,
+                        onSuccess = {
+                            runOnUiThread {
+                                Toast.makeText(this@ChatActivity, "Sesión renovada", Toast.LENGTH_SHORT).show()
+                                // Reintentar cargar mensajes
+                                loadMessagesFromServer()
+                            }
+                        },
+                        onError = { error ->
+                            runOnUiThread {
+                                Toast.makeText(this@ChatActivity, "Sesión expirada: $error", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
                 } else {
-                    "Error del servidor ($code)"
+                    Toast.makeText(this@ChatActivity, "Error del servidor ($code)", Toast.LENGTH_SHORT).show()
                 }
-                Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_SHORT).show()
             },
             onNetworkError = {
                 // Error de red: NO recargar mensajes locales si ya se cargaron

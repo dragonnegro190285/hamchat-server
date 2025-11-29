@@ -24,6 +24,8 @@ class ChatRepository(private val context: Context) {
         private const val KEY_USERNAME = "username"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_LAST_MSG_PREFIX = "last_msg_"
+        private const val KEY_PHONE_COUNTRY_CODE = "phone_country_code"
+        private const val KEY_PHONE_NATIONAL = "phone_national"
     }
 
     private val prefs: SharedPreferences by lazy {
@@ -61,6 +63,14 @@ class ChatRepository(private val context: Context) {
     var username: String?
         get() = prefs.getString(KEY_USERNAME, null)
         set(value) = prefs.edit().putString(KEY_USERNAME, value).apply()
+
+    var phoneCountryCode: String?
+        get() = prefs.getString(KEY_PHONE_COUNTRY_CODE, null)
+        set(value) = prefs.edit().putString(KEY_PHONE_COUNTRY_CODE, value).apply()
+
+    var phoneNational: String?
+        get() = prefs.getString(KEY_PHONE_NATIONAL, null)
+        set(value) = prefs.edit().putString(KEY_PHONE_NATIONAL, value).apply()
 
     var serverUrl: String
         get() = prefs.getString(KEY_SERVER_URL, "") ?: ""
@@ -242,7 +252,7 @@ class ChatRepository(private val context: Context) {
         onSuccess: (LoginResponse) -> Unit,
         onError: (String) -> Unit
     ) {
-        HamChatApiClient.api.login(LoginRequest(username, password))
+        HamChatApiClient.api.login(LoginRequest(username = username, password = password))
             .enqueue(object : Callback<LoginResponse> {
                 override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
                     if (response.isSuccessful) {
@@ -263,6 +273,75 @@ class ChatRepository(private val context: Context) {
             })
     }
 
+    /**
+     * Login por teléfono (sin contraseña)
+     */
+    fun loginByPhone(
+        phoneCountryCode: String,
+        phoneNational: String,
+        onSuccess: (LoginResponse) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        HamChatApiClient.api.login(LoginRequest(
+            phone_country_code = phoneCountryCode,
+            phone_national = phoneNational
+        )).enqueue(object : Callback<LoginResponse> {
+            override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
+                if (response.isSuccessful) {
+                    val body = response.body()!!
+                    token = body.token
+                    userId = body.user_id
+                    this@ChatRepository.phoneCountryCode = phoneCountryCode
+                    this@ChatRepository.phoneNational = phoneNational
+                    onSuccess(body)
+                } else {
+                    onError("Usuario no encontrado")
+                }
+            }
+
+            override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
+                Log.e(TAG, "Login by phone failed", t)
+                onError(t.message ?: "Error de conexión")
+            }
+        })
+    }
+
+    /**
+     * Auto-relogin usando el teléfono guardado
+     * Útil cuando el token expira
+     */
+    fun autoRelogin(
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val savedCountryCode = phoneCountryCode
+        val savedNational = phoneNational
+        
+        if (savedCountryCode.isNullOrEmpty() || savedNational.isNullOrEmpty()) {
+            onError("No hay teléfono guardado para auto-relogin")
+            return
+        }
+        
+        Log.d(TAG, "Intentando auto-relogin con teléfono: $savedCountryCode$savedNational")
+        
+        loginByPhone(
+            phoneCountryCode = savedCountryCode,
+            phoneNational = savedNational,
+            onSuccess = { 
+                Log.d(TAG, "Auto-relogin exitoso")
+                onSuccess() 
+            },
+            onError = onError
+        )
+    }
+
+    /**
+     * Verifica si hay datos para auto-relogin
+     */
+    fun canAutoRelogin(): Boolean {
+        return !phoneCountryCode.isNullOrEmpty() && !phoneNational.isNullOrEmpty()
+    }
+
     fun register(
         username: String,
         password: String,
@@ -275,7 +354,12 @@ class ChatRepository(private val context: Context) {
             .enqueue(object : Callback<RegisterResponse> {
                 override fun onResponse(call: Call<RegisterResponse>, response: Response<RegisterResponse>) {
                     if (response.isSuccessful) {
-                        onSuccess(response.body()!!)
+                        val body = response.body()!!
+                        // Guardar teléfono para auto-relogin
+                        this@ChatRepository.phoneCountryCode = phoneCountryCode
+                        this@ChatRepository.phoneNational = phoneNational
+                        this@ChatRepository.username = username
+                        onSuccess(body)
                     } else {
                         onError("Error en registro: ${response.code()}")
                     }

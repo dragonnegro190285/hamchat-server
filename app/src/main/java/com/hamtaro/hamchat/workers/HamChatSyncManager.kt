@@ -2,6 +2,8 @@ package com.hamtaro.hamchat.workers
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import com.hamtaro.hamchat.HamtaroApplication
 import com.hamtaro.hamchat.network.HamChatApiClient
 import com.hamtaro.hamchat.network.InboxItemDto
 import com.hamtaro.hamchat.network.MessageDto
@@ -30,6 +32,8 @@ private const val KEY_LAST_MSG_PREFIX = "last_msg_id_"
  */
 object HamChatSyncManager {
 
+    private const val TAG = "HamChatSyncManager"
+
     data class RemoteMessagesResult(
         val currentUserId: Int,
         val messages: List<MessageDto>
@@ -37,6 +41,57 @@ object HamChatSyncManager {
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    /**
+     * Intenta auto-relogin cuando el token expira (error 401)
+     */
+    fun tryAutoRelogin(
+        context: Context,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        try {
+            val app = context.applicationContext as? HamtaroApplication
+            val chatRepo = app?.chatRepository
+            
+            if (chatRepo == null) {
+                onError("No se pudo obtener ChatRepository")
+                return
+            }
+            
+            if (!chatRepo.canAutoRelogin()) {
+                onError("No hay datos para auto-relogin")
+                return
+            }
+            
+            Log.d(TAG, "Intentando auto-relogin...")
+            
+            chatRepo.autoRelogin(
+                onSuccess = {
+                    Log.d(TAG, "Auto-relogin exitoso, actualizando token en SecurePreferences")
+                    // Actualizar token en SecurePreferences también
+                    try {
+                        val securePrefs = SecurePreferences(context)
+                        chatRepo.token?.let { securePrefs.setAuthToken(it) }
+                        
+                        // Actualizar en SharedPreferences normales también
+                        val prefs = getPrefs(context)
+                        prefs.edit()
+                            .putString(KEY_AUTH_TOKEN, chatRepo.token)
+                            .putInt(KEY_AUTH_USER_ID, chatRepo.userId)
+                            .apply()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error actualizando token después de auto-relogin", e)
+                    }
+                    onSuccess()
+                },
+                onError = onError
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en tryAutoRelogin", e)
+            onError(e.message ?: "Error desconocido")
+        }
     }
 
     /**

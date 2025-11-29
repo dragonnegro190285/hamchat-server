@@ -168,10 +168,25 @@ class EmbeddedServer(
         val body = getBody(session)
         val req = gson.fromJson(body, LoginRequest::class.java)
 
-        val user = db.getUserByUsername(req.username)
-            ?: return errorResponse(401, "invalid credentials")
-
-        if (user.passwordHash != hashPassword(req.password)) {
+        // Login por teléfono (prioridad)
+        var user: LocalDatabase.UserRecord? = null
+        if (!req.phone_country_code.isNullOrEmpty() && !req.phone_national.isNullOrEmpty()) {
+            val phoneE164 = req.phone_country_code + req.phone_national
+            user = db.getUserByPhone(phoneE164)
+        }
+        
+        // Login por username (fallback)
+        if (user == null && !req.username.isNullOrEmpty()) {
+            user = db.getUserByUsername(req.username)
+            // Verificar contraseña solo si se proporcionó
+            if (user != null && !req.password.isNullOrEmpty()) {
+                if (user.passwordHash != hashPassword(req.password)) {
+                    return errorResponse(401, "invalid credentials")
+                }
+            }
+        }
+        
+        if (user == null) {
             return errorResponse(401, "invalid credentials")
         }
 

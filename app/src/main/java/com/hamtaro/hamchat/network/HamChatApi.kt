@@ -29,8 +29,10 @@ data class RegisterResponse(
 )
 
 data class LoginRequest(
-    val username: String,
-    val password: String
+    val username: String? = null,
+    val password: String? = null,
+    val phone_country_code: String? = null,
+    val phone_national: String? = null
 )
 
 data class LoginResponse(
