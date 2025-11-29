@@ -289,23 +289,35 @@ class ChatActivity : BaseActivity() {
                 hasLoadedFromServer = true
                 isFirstLoad = false
                 
-                // Crear mapa de mensajes del servidor por ID
-                val serverMessagesById = mutableMapOf<Int, ChatMessage>()
+                // Usar Set para evitar duplicados por serverId
+                val seenServerIds = mutableSetOf<Int>()
+                val seenContentKeys = mutableSetOf<String>()
+                val newMessages = mutableListOf<ChatMessage>()
+                
                 for (m in result.messages) {
+                    // Evitar duplicados por serverId
+                    if (seenServerIds.contains(m.id)) continue
+                    seenServerIds.add(m.id)
+                    
                     val senderLabel = if (m.sender_id == result.currentUserId) "Yo" else contactName
                     val msgKey = "${m.sender_id}_${m.content}_${m.id}"
                     
                     // Filtrar mensajes borrados localmente
                     if (deletedMessageKeys.contains(msgKey)) continue
                     
-                    serverMessagesById[m.id] = ChatMessage(
+                    // Evitar duplicados por contenido+sender
+                    val contentKey = "${senderLabel}_${m.content}"
+                    if (seenContentKeys.contains(contentKey)) continue
+                    seenContentKeys.add(contentKey)
+                    
+                    newMessages.add(ChatMessage(
                         sender = senderLabel,
                         content = m.content,
                         timestamp = m.id.toLong(),
                         serverId = m.id,
                         localId = "",
                         isSentToServer = true
-                    )
+                    ))
                 }
                 
                 // Obtener mensajes locales pendientes (no enviados al servidor)
@@ -313,25 +325,21 @@ class ChatActivity : BaseActivity() {
                     !it.isSentToServer && it.serverId == 0 && it.localId.isNotEmpty()
                 }
                 
-                // Crear lista final: mensajes del servidor + pendientes locales
+                // Crear lista final
                 messages.clear()
-                messages.addAll(serverMessagesById.values)
+                messages.addAll(newMessages)
                 
                 // Agregar mensajes pendientes que no están en el servidor
                 for (pending in pendingLocalMessages) {
-                    // Verificar que no exista ya (por contenido similar)
-                    val alreadyExists = messages.any { 
-                        it.content == pending.content && 
-                        it.sender == pending.sender &&
-                        Math.abs(it.timestamp - pending.timestamp) < 60000 // 1 minuto de tolerancia
-                    }
-                    if (!alreadyExists) {
+                    val contentKey = "${pending.sender}_${pending.content}"
+                    if (!seenContentKeys.contains(contentKey)) {
                         messages.add(pending)
+                        seenContentKeys.add(contentKey)
                     }
                 }
                 
-                // Ordenar por timestamp
-                messages.sortBy { it.timestamp }
+                // Ordenar por serverId (que es el orden real del servidor)
+                messages.sortBy { it.serverId }
                 
                 saveMessages()
                 renderMessages()

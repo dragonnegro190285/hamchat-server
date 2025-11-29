@@ -144,7 +144,7 @@ interface HamChatApi {
 
 object HamChatApiClient {
 
-    // URL base por defecto (servidor en la nube)
+    // URL base por defecto (servidor en la nube - Render)
     private const val DEFAULT_BASE_URL = "https://hamchat-server.onrender.com/api/"
     
     // URL del servidor local embebido
