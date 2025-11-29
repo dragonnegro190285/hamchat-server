@@ -25,13 +25,23 @@ private const val PREFS_NAME = "hamchat_settings"
 private const val KEY_CHAT_PREFIX = "chat_"
 private const val KEY_PRIVATE_CHAT = "private_chat_hamtaro"
 
+/**
+ * Modelo de mensaje con campos para sincronización robusta:
+ * - sentAt: Fecha/hora exacta de envío local
+ * - receivedAt: Fecha/hora de recepción (null si no recibido)
+ * - isSentToServer: true si ya se envió al servidor (no en cola)
+ * - isDelivered: true si el destinatario lo recibió
+ */
 data class ChatMessage(
     val sender: String, 
     val content: String, 
     val timestamp: Long,
-    val serverId: Int = 0,           // ID del servidor (0 si no está en servidor)
-    val localId: String = "",        // ID local único para evitar duplicados
-    val isSentToServer: Boolean = false  // Si ya se envió al servidor
+    val serverId: Int = 0,              // ID del servidor (0 si no está en servidor)
+    val localId: String = "",           // ID local único para evitar duplicados
+    val isSentToServer: Boolean = false, // Si ya se envió al servidor (no en cola)
+    val isDelivered: Boolean = false,   // Si el destinatario lo recibió
+    val sentAt: Long = System.currentTimeMillis(),    // Timestamp exacto de envío
+    val receivedAt: Long? = null        // Timestamp de recepción (null si no recibido)
 )
 
 class ChatActivity : BaseActivity() {
@@ -292,6 +302,7 @@ class ChatActivity : BaseActivity() {
                 // Usar Set para evitar duplicados SOLO por serverId (el ID único del servidor)
                 val seenServerIds = mutableSetOf<Int>()
                 val newMessages = mutableListOf<ChatMessage>()
+                val receivedMessageIds = mutableListOf<Int>()  // IDs de mensajes recibidos para marcar como entregados
                 
                 for (m in result.messages) {
                     // Evitar duplicados SOLO por serverId (permite mensajes con mismo contenido)
@@ -304,14 +315,27 @@ class ChatActivity : BaseActivity() {
                     // Filtrar mensajes borrados localmente
                     if (deletedMessageKeys.contains(msgKey)) continue
                     
+                    // Si soy el receptor y el mensaje no está marcado como entregado, agregarlo a la lista
+                    if (m.sender_id != result.currentUserId && !m.is_delivered) {
+                        receivedMessageIds.add(m.id)
+                    }
+                    
                     newMessages.add(ChatMessage(
                         sender = senderLabel,
                         content = m.content,
                         timestamp = m.id.toLong(),
                         serverId = m.id,
-                        localId = "",
-                        isSentToServer = true
+                        localId = m.local_id ?: "",
+                        isSentToServer = true,
+                        isDelivered = m.is_delivered,
+                        sentAt = System.currentTimeMillis(),
+                        receivedAt = if (m.received_at != null) System.currentTimeMillis() else null
                     ))
+                }
+                
+                // Marcar mensajes recibidos como entregados en el servidor
+                if (receivedMessageIds.isNotEmpty()) {
+                    HamChatSyncManager.markMessagesAsDelivered(this@ChatActivity, receivedMessageIds)
                 }
                 
                 // Obtener mensajes locales pendientes (no enviados al servidor)

@@ -6,6 +6,7 @@ import android.util.Log
 import com.hamtaro.hamchat.HamtaroApplication
 import com.hamtaro.hamchat.network.HamChatApiClient
 import com.hamtaro.hamchat.network.InboxItemDto
+import com.hamtaro.hamchat.network.MarkDeliveredRequest
 import com.hamtaro.hamchat.network.MessageDto
 import com.hamtaro.hamchat.network.MessageRequest
 import com.hamtaro.hamchat.notifications.HamChatNotificationManager
@@ -183,6 +184,52 @@ object HamChatSyncManager {
         }
     }
 
+    /**
+     * Marcar mensajes como entregados en el servidor.
+     * Se llama cuando el receptor recibe mensajes nuevos.
+     */
+    fun markMessagesAsDelivered(
+        context: Context,
+        messageIds: List<Int>,
+        onComplete: (() -> Unit)? = null
+    ) {
+        if (messageIds.isEmpty()) {
+            onComplete?.invoke()
+            return
+        }
+        
+        val prefs = getPrefs(context)
+        val token = getAuthTokenSecure(context, prefs)
+        if (token.isNullOrEmpty()) {
+            onComplete?.invoke()
+            return
+        }
+        
+        try {
+            HamChatApiClient.api.markMessagesDelivered(
+                "Bearer $token",
+                MarkDeliveredRequest(messageIds)
+            ).enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Mensajes marcados como entregados: ${messageIds.size}")
+                    } else {
+                        Log.w(TAG, "Error marcando mensajes: ${response.code()}")
+                    }
+                    onComplete?.invoke()
+                }
+
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    Log.w(TAG, "Error de red marcando mensajes: ${t.message}")
+                    onComplete?.invoke()
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Excepción marcando mensajes", e)
+            onComplete?.invoke()
+        }
+    }
+
     // ========== Cola de mensajes pendientes ==========
 
     private fun getPendingKey(contactId: String): String {
@@ -302,7 +349,17 @@ object HamChatSyncManager {
         }
 
         val msg = pending.first()
-        val request = MessageRequest(recipient_id = remoteUserId, content = msg.content)
+        // Incluir local_id y sent_at para evitar duplicados
+        val sentAtIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(java.util.Date(msg.timestamp))
+        
+        val request = MessageRequest(
+            recipient_id = remoteUserId, 
+            content = msg.content,
+            local_id = msg.localId,
+            sent_at = sentAtIso
+        )
 
         try {
             HamChatApiClient.api.sendMessage(authHeader, request)
@@ -315,20 +372,24 @@ object HamChatSyncManager {
                             // Mensaje enviado exitosamente, remover de pendientes
                             pending.removeAt(0)
                             savePendingMessages(context, contactId, pending)
+                            Log.d(TAG, "Mensaje enviado al servidor: ${msg.localId}")
                             // Continuar con el siguiente
                             sendNextPending(context, contactId, pending, remoteUserId, authHeader, onFinished)
                         } else {
                             // Error del servidor, mantener en cola
+                            Log.w(TAG, "Error enviando mensaje: ${response.code()}")
                             onFinished?.invoke()
                         }
                     }
 
                     override fun onFailure(call: Call<MessageDto>, t: Throwable) {
                         // Error de red, mantener en cola
+                        Log.w(TAG, "Error de red enviando mensaje: ${t.message}")
                         onFinished?.invoke()
                     }
                 })
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Excepción enviando mensaje", e)
             onFinished?.invoke()
         }
     }

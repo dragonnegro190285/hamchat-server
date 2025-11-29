@@ -42,7 +42,9 @@ data class LoginResponse(
 
 data class MessageRequest(
     val recipient_id: Int,
-    val content: String
+    val content: String,
+    val local_id: String? = null,    // ID local para evitar duplicados
+    val sent_at: String? = null      // Timestamp de envío del cliente
 )
 
 data class MessageDto(
@@ -50,7 +52,15 @@ data class MessageDto(
     val sender_id: Int,
     val recipient_id: Int,
     val content: String,
-    val created_at: String
+    val created_at: String,
+    val sent_at: String? = null,
+    val received_at: String? = null,
+    val is_delivered: Boolean = false,
+    val local_id: String? = null
+)
+
+data class MarkDeliveredRequest(
+    val message_ids: List<Int>
 )
 
 data class UserLookupResponse(
@@ -115,6 +125,12 @@ interface HamChatApi {
         @Query("with_user_id") withUserId: Int,
         @Query("since_id") sinceId: Int
     ): Call<List<MessageDto>>
+
+    @POST("messages/mark-delivered")
+    fun markMessagesDelivered(
+        @Header("Authorization") authHeader: String,
+        @Body body: MarkDeliveredRequest
+    ): Call<Map<String, Any>>
 
     @GET("users/by-username/{username}")
     fun getUserByUsername(

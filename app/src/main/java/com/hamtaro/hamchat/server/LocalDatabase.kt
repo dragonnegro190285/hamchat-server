@@ -16,7 +16,7 @@ class LocalDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME,
 
     companion object {
         private const val DATABASE_NAME = "hamchat_local.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -39,6 +39,10 @@ class LocalDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME,
                 recipient_id INTEGER NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                sent_at TEXT NOT NULL,
+                received_at TEXT,
+                is_delivered INTEGER DEFAULT 0,
+                local_id TEXT,
                 FOREIGN KEY(sender_id) REFERENCES users(id),
                 FOREIGN KEY(recipient_id) REFERENCES users(id)
             )
@@ -83,7 +87,19 @@ class LocalDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME,
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Manejar migraciones aquí si es necesario
+        if (oldVersion < 2) {
+            // Agregar nuevos campos a messages
+            try {
+                db.execSQL("ALTER TABLE messages ADD COLUMN sent_at TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN received_at TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN is_delivered INTEGER DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN local_id TEXT")
+                // Actualizar registros existentes
+                db.execSQL("UPDATE messages SET sent_at = created_at WHERE sent_at IS NULL")
+            } catch (e: Exception) {
+                // Columnas ya existen o error menor
+            }
+        }
     }
 
     private fun nowIso(): String {
