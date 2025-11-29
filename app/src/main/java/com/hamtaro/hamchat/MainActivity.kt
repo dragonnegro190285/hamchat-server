@@ -41,7 +41,8 @@ import java.util.UUID
 import com.hamtaro.hamchat.network.LadaCreateRequest
 import com.hamtaro.hamchat.network.LadaDto
 
-data class Contact(
+// ContactItem para UI de MainActivity (diferente de model.Contact)
+data class ContactItem(
     val id: String,
     val name: String,
     val lastMessage: String = "",
@@ -118,7 +119,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val contacts = listOf(
-        Contact("contact_hamtaro", "Hamtaro", "¡Hola! Soy Hamtaro 🐹", "Ahora", false, 1)
+        ContactItem("contact_hamtaro", "Hamtaro", "¡Hola! Soy Hamtaro 🐹", "Ahora", false, 1)
     )
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -292,7 +293,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun promoteContactToRemote(
-        contact: Contact,
+        contact: ContactItem,
         remoteUser: com.hamtaro.hamchat.network.UserLookupResponse
     ) {
         try {
@@ -470,7 +471,7 @@ class MainActivity : AppCompatActivity() {
     private fun addRemoteFriend(username: String, countryCode: String, phoneDigits: String) {
         fun handleUser(user: com.hamtaro.hamchat.network.UserLookupResponse) {
             val contactId = "remote_" + user.id
-            val newContact = Contact(
+            val newContact = ContactItem(
                 id = contactId,
                 name = user.username,
                 lastMessage = "",
@@ -1264,7 +1265,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private fun createSimpleContactView(contact: Contact): View {
+    private fun createSimpleContactView(contact: ContactItem): View {
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
@@ -1327,7 +1328,7 @@ class MainActivity : AppCompatActivity() {
         return mainLayout
     }
 
-    private fun showContactOptions(contact: Contact) {
+    private fun showContactOptions(contact: ContactItem) {
         val isFriend = getFriendIds().contains(contact.id)
         // Contactos sin nombre asignado: nombre == phoneNumber
         val isAutoNamed = !contact.phoneNumber.isNullOrBlank() && contact.name == contact.phoneNumber
@@ -1399,7 +1400,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showEditContactDialog(contact: Contact) {
+    private fun showEditContactDialog(contact: ContactItem) {
         try {
             val dialogView = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1587,7 +1588,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private fun toggleFriend(contact: Contact) {
+    private fun toggleFriend(contact: ContactItem) {
         val ids = getFriendIds()
         if (ids.contains(contact.id)) {
             ids.remove(contact.id)
@@ -1741,7 +1742,7 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putStringSet(KEY_FRIEND_IDS, ids).apply()
     }
 
-    private fun clearChatHistory(contact: Contact) {
+    private fun clearChatHistory(contact: ContactItem) {
         try {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val key = if (contact.id == "contact_hamtaro") {
@@ -1784,7 +1785,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun deleteContact(contact: Contact) {
+    private fun deleteContact(contact: ContactItem) {
         if (contact.id == "contact_hamtaro") {
             Toast.makeText(this, "Hamtaro es un contacto fijo y no se puede eliminar", Toast.LENGTH_SHORT).show()
             return
@@ -1852,7 +1853,7 @@ class MainActivity : AppCompatActivity() {
                 val obj = array.getJSONObject(i)
                 // Compatibilidad: aceptar tanto "phoneNumber" nuevo como "whatsappNumber" antiguo
                 val rawPhone = obj.optString("phoneNumber", obj.optString("whatsappNumber", ""))
-                val contact = Contact(
+                val contact = ContactItem(
                     id = obj.optString("id", "custom_$i"),
                     name = obj.optString("name", "Contacto"),
                     lastMessage = obj.optString("lastMessage", ""),
@@ -1870,7 +1871,7 @@ class MainActivity : AppCompatActivity() {
                 val parts = simple.split("|").filter { it.isNotBlank() }
                 for ((index, part) in parts.withIndex()) {
                     val name = part.substringBefore(":")
-                    allContacts.add(Contact(id = "simple_$index", name = name))
+                    allContacts.add(ContactItem(id = "simple_$index", name = name))
                 }
             }
         }
@@ -1892,7 +1893,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openChat(contact: Contact) {
+    private fun openChat(contact: ContactItem) {
         try {
             Toast.makeText(this, "Abriendo chat con ${contact.name}...", Toast.LENGTH_SHORT).show()
 
@@ -2187,7 +2188,7 @@ class MainActivity : AppCompatActivity() {
                                 finalName
                             }
 
-                            val contact = Contact(
+                            val contact = ContactItem(
                                 id = remoteContactId,
                                 name = displayName,
                                 lastMessage = "Contacto Ham-Chat agregado",
@@ -2227,7 +2228,7 @@ class MainActivity : AppCompatActivity() {
             val contactId = "contact_${System.currentTimeMillis()}"
             
             // Create new contact
-            val newContact = Contact(
+            val newContact = ContactItem(
                 id = contactId,
                 name = name,
                 lastMessage = "Contacto agregado recientemente",
@@ -2254,7 +2255,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private fun saveContactToPrefs(contact: Contact, phoneNumber: String) {
+    private fun saveContactToPrefs(contact: ContactItem, phoneNumber: String) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val contactsJson = prefs.getString("custom_contacts", "[]")
         
@@ -2288,7 +2289,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private fun updateContactInPrefs(original: Contact, newName: String, newPhoneNumber: String) {
+    private fun updateContactInPrefs(original: ContactItem, newName: String, newPhoneNumber: String) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val contactsJson = prefs.getString("custom_contacts", "[]")
 
