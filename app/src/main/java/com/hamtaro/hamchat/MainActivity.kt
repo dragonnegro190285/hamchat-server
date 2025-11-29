@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hasLocalContactsNeedingPromotion(): Boolean {
         return try {
-            getAllContacts().any { contact ->
+            getAllContacts().any { contact: ContactItem ->
                 contact.id != "contact_hamtaro" &&
                         !contact.id.startsWith("remote_") &&
                         !contact.phoneNumber.isNullOrBlank()
@@ -1839,8 +1839,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun getAllContacts(): List<Contact> {
-        val allContacts = mutableListOf<Contact>()
+    private fun getAllContacts(): List<ContactItem> {
+        val allContacts = mutableListOf<ContactItem>()
         // Contactos fijos (Hamtaro, etc.)
         allContacts.addAll(contacts)
 
