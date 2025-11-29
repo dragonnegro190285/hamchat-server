@@ -829,7 +829,17 @@ class MainActivity : BaseActivity() {
                         .putString(KEY_AUTH_USERNAME, body.username)
                         .putInt(KEY_AUTH_USER_ID, body.id)
                         .putString(KEY_AUTH_PHONE_E164, body.phone_e164)
+                        .putString("phone_country_code", body.phone_country_code)
+                        .putString("phone_national", body.phone_national)
                         .apply()
+                    
+                    // Guardar también en ChatRepository para auto-relogin
+                    val app = application as? HamtaroApplication
+                    app?.chatRepository?.let { repo ->
+                        repo.phoneCountryCode = body.phone_country_code
+                        repo.phoneNational = body.phone_national
+                    }
+                    
                     Toast.makeText(
                         this@MainActivity,
                         "Usuario registrado, iniciando sesion...",
@@ -879,6 +889,20 @@ class MainActivity : BaseActivity() {
                         .apply()
                     try {
                         securePrefs.setAuthToken(body.token)
+                        
+                        // Migrar teléfono a ChatRepository para auto-relogin
+                        val phoneCC = prefs.getString("phone_country_code", null)
+                        val phoneNat = prefs.getString("phone_national", null)
+                        if (!phoneCC.isNullOrEmpty() && !phoneNat.isNullOrEmpty()) {
+                            val app = application as? HamtaroApplication
+                            app?.chatRepository?.let { repo ->
+                                repo.phoneCountryCode = phoneCC
+                                repo.phoneNational = phoneNat
+                                repo.token = body.token
+                                repo.userId = body.user_id
+                            }
+                        }
+                        
                         Toast.makeText(
                             this@MainActivity,
                             "Registro completado exitosamente",
