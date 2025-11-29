@@ -289,13 +289,12 @@ class ChatActivity : BaseActivity() {
                 hasLoadedFromServer = true
                 isFirstLoad = false
                 
-                // Usar Set para evitar duplicados por serverId
+                // Usar Set para evitar duplicados SOLO por serverId (el ID único del servidor)
                 val seenServerIds = mutableSetOf<Int>()
-                val seenContentKeys = mutableSetOf<String>()
                 val newMessages = mutableListOf<ChatMessage>()
                 
                 for (m in result.messages) {
-                    // Evitar duplicados por serverId
+                    // Evitar duplicados SOLO por serverId (permite mensajes con mismo contenido)
                     if (seenServerIds.contains(m.id)) continue
                     seenServerIds.add(m.id)
                     
@@ -304,11 +303,6 @@ class ChatActivity : BaseActivity() {
                     
                     // Filtrar mensajes borrados localmente
                     if (deletedMessageKeys.contains(msgKey)) continue
-                    
-                    // Evitar duplicados por contenido+sender
-                    val contentKey = "${senderLabel}_${m.content}"
-                    if (seenContentKeys.contains(contentKey)) continue
-                    seenContentKeys.add(contentKey)
                     
                     newMessages.add(ChatMessage(
                         sender = senderLabel,
@@ -330,11 +324,19 @@ class ChatActivity : BaseActivity() {
                 messages.addAll(newMessages)
                 
                 // Agregar mensajes pendientes que no están en el servidor
+                // Usar localId para evitar duplicados de pendientes
+                val seenLocalIds = mutableSetOf<String>()
                 for (pending in pendingLocalMessages) {
-                    val contentKey = "${pending.sender}_${pending.content}"
-                    if (!seenContentKeys.contains(contentKey)) {
-                        messages.add(pending)
-                        seenContentKeys.add(contentKey)
+                    if (pending.localId.isNotEmpty() && !seenLocalIds.contains(pending.localId)) {
+                        // Verificar que no exista en servidor por contenido+timestamp cercano
+                        val existsInServer = newMessages.any { 
+                            it.content == pending.content && 
+                            it.sender == pending.sender 
+                        }
+                        if (!existsInServer) {
+                            messages.add(pending)
+                            seenLocalIds.add(pending.localId)
+                        }
                     }
                 }
                 
