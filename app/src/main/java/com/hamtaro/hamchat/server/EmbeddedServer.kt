@@ -17,10 +17,6 @@ class EmbeddedServer(
     port: Int = 8080
 ) : NanoHTTPD(port) {
 
-    companion object {
-        private const val TAG = "EmbeddedServer"
-    }
-
     private val gson = Gson()
     private val db = LocalDatabase(context)
 
@@ -96,6 +92,18 @@ class EmbeddedServer(
                     } else {
                         errorResponse(400, "Invalid contact ID")
                     }
+                }
+
+                // Database Admin (para pruebas)
+                uri == "/api/admin/reset" && method == Method.POST -> {
+                    handleResetDatabase(session)
+                }
+                uri == "/api/admin/stats" && method == Method.GET -> {
+                    jsonResponse(db.getStats())
+                }
+                uri == "/api/admin/clear-messages" && method == Method.POST -> {
+                    db.clearMessages()
+                    jsonResponse(mapOf("status" to "ok", "message" to "Messages cleared"))
                 }
 
                 else -> {
@@ -297,6 +305,45 @@ class EmbeddedServer(
         }
     }
 
+    // ========== Admin Handlers ==========
+
+    /**
+     * Resetea completamente la base de datos
+     * Requiere el secret key para seguridad
+     */
+    private fun handleResetDatabase(session: IHTTPSession): Response {
+        val body = getBody(session)
+        
+        // Verificar secret key para seguridad
+        val request = try {
+            gson.fromJson(body, ResetRequest::class.java)
+        } catch (e: Exception) {
+            null
+        }
+        
+        if (request?.secret != ADMIN_SECRET) {
+            return errorResponse(403, "Invalid admin secret")
+        }
+        
+        return try {
+            db.resetDatabase()
+            Log.i(TAG, "🗑️ Database reset completed")
+            jsonResponse(mapOf(
+                "status" to "ok",
+                "message" to "Database reset successfully",
+                "stats" to db.getStats()
+            ))
+        } catch (e: Exception) {
+            Log.e(TAG, "Database reset failed", e)
+            errorResponse(500, "Reset failed: ${e.message}")
+        }
+    }
+
+    companion object {
+        private const val TAG = "EmbeddedServer"
+        private const val ADMIN_SECRET = "hamchat-reset-2024"
+    }
+
     // ========== Utilities ==========
 
     private fun getBody(session: IHTTPSession): String {
@@ -353,4 +400,8 @@ data class ContactDto(
     val alias: String?,
     val username: String,
     val phone_e164: String
+)
+
+data class ResetRequest(
+    val secret: String
 )

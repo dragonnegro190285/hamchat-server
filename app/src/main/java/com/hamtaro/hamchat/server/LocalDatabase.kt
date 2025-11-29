@@ -418,4 +418,59 @@ class LocalDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME,
             }
         }
     }
+
+    // ========== Database Reset ==========
+
+    /**
+     * Limpia TODOS los datos de la base de datos
+     * Útil para pruebas en limpio
+     */
+    fun resetDatabase() {
+        val db = writableDatabase
+        db.execSQL("DELETE FROM auth_tokens")
+        db.execSQL("DELETE FROM messages")
+        db.execSQL("DELETE FROM contacts")
+        db.execSQL("DELETE FROM users")
+        db.execSQL("DELETE FROM ladas")
+        
+        // Reset autoincrement counters
+        db.execSQL("DELETE FROM sqlite_sequence")
+    }
+
+    /**
+     * Limpia solo los mensajes
+     */
+    fun clearMessages() {
+        val db = writableDatabase
+        db.execSQL("DELETE FROM messages")
+    }
+
+    /**
+     * Limpia solo los tokens de autenticación
+     */
+    fun clearTokens() {
+        val db = writableDatabase
+        db.execSQL("DELETE FROM auth_tokens")
+    }
+
+    /**
+     * Obtiene estadísticas de la base de datos
+     */
+    fun getStats(): Map<String, Int> {
+        val db = readableDatabase
+        return mapOf(
+            "users" to getCount(db, "users"),
+            "messages" to getCount(db, "messages"),
+            "contacts" to getCount(db, "contacts"),
+            "tokens" to getCount(db, "auth_tokens"),
+            "ladas" to getCount(db, "ladas")
+        )
+    }
+
+    private fun getCount(db: SQLiteDatabase, table: String): Int {
+        val cursor = db.rawQuery("SELECT COUNT(*) FROM $table", null)
+        return cursor.use {
+            if (it.moveToFirst()) it.getInt(0) else 0
+        }
+    }
 }
