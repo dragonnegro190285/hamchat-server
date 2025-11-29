@@ -135,6 +135,47 @@ def create_tables() -> None:
 
     conn.commit()
     conn.close()
+    
+    # Crear usuarios de prueba predefinidos
+    create_test_users()
+
+
+# Números de prueba predefinidos
+TEST_USERS = [
+    {"username": "alvaro puebla", "password": "test123", "country_code": "+52", "national": "2228165690"},
+    {"username": "alvaro tulancingo", "password": "test123", "country_code": "+52", "national": "7753574534"},
+]
+
+
+def create_test_users() -> None:
+    """Crea usuarios de prueba si no existen"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    for user in TEST_USERS:
+        phone_e164 = user["country_code"] + user["national"]
+        # Verificar si ya existe
+        cur.execute("SELECT id FROM users WHERE phone_e164 = ?", (phone_e164,))
+        if cur.fetchone() is None:
+            # Crear usuario de prueba
+            cur.execute(
+                """
+                INSERT INTO users (username, password_hash, phone_country_code, phone_national, phone_e164, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user["username"],
+                    hash_password(user["password"]),
+                    user["country_code"],
+                    user["national"],
+                    phone_e164,
+                    now_iso(),
+                ),
+            )
+            print(f"✅ Usuario de prueba creado: {phone_e164}")
+    
+    conn.commit()
+    conn.close()
 
 
 # ---------- FastAPI app ----------
@@ -267,6 +308,26 @@ def register(req: RegisterRequest) -> UserResponse:
 
     conn = get_db()
     cur = conn.cursor()
+    
+    # Números de prueba - si ya existen, devolver el usuario existente
+    test_phones = ["+522228165690", "+527753574534"]
+    
+    # Verificar si el teléfono ya está registrado
+    cur.execute("SELECT id, username, phone_country_code, phone_national, phone_e164 FROM users WHERE phone_e164 = ?", (e164,))
+    existing = cur.fetchone()
+    
+    if existing:
+        # Si ya existe, devolver el usuario existente (permite re-login)
+        conn.close()
+        print(f"📱 Usuario existente encontrado: {e164}")
+        return UserResponse(
+            id=int(existing["id"]),
+            username=existing["username"],
+            phone_country_code=existing["phone_country_code"],
+            phone_national=existing["phone_national"],
+            phone_e164=existing["phone_e164"],
+        )
+    
     try:
         cur.execute(
             """
@@ -284,6 +345,7 @@ def register(req: RegisterRequest) -> UserResponse:
         )
         conn.commit()
         user_id = cur.lastrowid
+        print(f"✅ Nuevo usuario registrado: {e164}")
     except sqlite3.IntegrityError as e:
         conn.close()
         msg = str(e)
