@@ -35,17 +35,36 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         
-        localDatabase = LocalDatabase(requireContext())
-        
-        languageRadioGroup = view.findViewById(R.id.language_radio_group)
-        themeRadioGroup = view.findViewById(R.id.theme_radio_group)
-        inactivityRadioGroup = view.findViewById(R.id.inactivity_radio_group)
-        clearDatabaseButton = view.findViewById(R.id.btn_clear_database)
-        dbStatsText = view.findViewById(R.id.db_stats)
-        
-        setupCurrentSettings()
-        setupListeners()
-        updateDbStats()
+        try {
+            localDatabase = LocalDatabase(requireContext())
+            
+            languageRadioGroup = view.findViewById(R.id.language_radio_group)
+            themeRadioGroup = view.findViewById(R.id.theme_radio_group)
+            
+            // Estos pueden no existir en versiones antiguas del layout
+            val inactivityGroup: RadioGroup? = view.findViewById(R.id.inactivity_radio_group)
+            val clearBtn: Button? = view.findViewById(R.id.btn_clear_database)
+            val statsText: TextView? = view.findViewById(R.id.db_stats)
+            
+            if (inactivityGroup != null) {
+                inactivityRadioGroup = inactivityGroup
+            }
+            if (clearBtn != null) {
+                clearDatabaseButton = clearBtn
+            }
+            if (statsText != null) {
+                dbStatsText = statsText
+            }
+            
+            setupCurrentSettings()
+            setupListeners()
+            
+            if (::dbStatsText.isInitialized) {
+                updateDbStats()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error cargando configuración: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
     
     private fun setupCurrentSettings() {
@@ -65,11 +84,13 @@ class SettingsFragment : Fragment() {
         }
         
         // Configurar tiempo de inactividad actual
-        when (InactivityManager.getTimeoutMinutes()) {
-            3 -> inactivityRadioGroup.check(R.id.radio_3min)
-            5 -> inactivityRadioGroup.check(R.id.radio_5min)
-            10 -> inactivityRadioGroup.check(R.id.radio_10min)
-            else -> inactivityRadioGroup.check(R.id.radio_5min)
+        if (::inactivityRadioGroup.isInitialized) {
+            when (InactivityManager.getTimeoutMinutes()) {
+                3 -> inactivityRadioGroup.check(R.id.radio_3min)
+                5 -> inactivityRadioGroup.check(R.id.radio_5min)
+                10 -> inactivityRadioGroup.check(R.id.radio_10min)
+                else -> inactivityRadioGroup.check(R.id.radio_5min)
+            }
         }
     }
     
@@ -97,20 +118,24 @@ class SettingsFragment : Fragment() {
         }
         
         // Configuración de tiempo de inactividad
-        inactivityRadioGroup.setOnCheckedChangeListener { _, checkedId ->
-            val minutes = when (checkedId) {
-                R.id.radio_3min -> 3
-                R.id.radio_5min -> 5
-                R.id.radio_10min -> 10
-                else -> 5
+        if (::inactivityRadioGroup.isInitialized) {
+            inactivityRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+                val minutes = when (checkedId) {
+                    R.id.radio_3min -> 3
+                    R.id.radio_5min -> 5
+                    R.id.radio_10min -> 10
+                    else -> 5
+                }
+                InactivityManager.setTimeoutMinutes(minutes)
+                Toast.makeText(context, "Cierre por inactividad: $minutes min", Toast.LENGTH_SHORT).show()
             }
-            InactivityManager.setTimeoutMinutes(minutes)
-            Toast.makeText(context, "Cierre por inactividad: $minutes min", Toast.LENGTH_SHORT).show()
         }
         
         // Botón para limpiar base de datos
-        clearDatabaseButton.setOnClickListener {
-            showClearDatabaseDialog()
+        if (::clearDatabaseButton.isInitialized) {
+            clearDatabaseButton.setOnClickListener {
+                showClearDatabaseDialog()
+            }
         }
     }
     
