@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -24,6 +26,7 @@ import org.json.JSONObject
 private const val PREFS_NAME = "hamchat_settings"
 private const val KEY_CHAT_PREFIX = "chat_"
 private const val KEY_PRIVATE_CHAT = "private_chat_hamtaro"
+private const val KEY_DRAFT_PREFIX = "draft_"  // Borradores de mensajes
 
 /**
  * Modelo de mensaje con campos para sincronización robusta:
@@ -60,6 +63,11 @@ class ChatActivity : BaseActivity() {
 
     private val messages = mutableListOf<ChatMessage>()
     private val deletedMessageKeys = mutableSetOf<String>() // Mensajes borrados localmente
+    
+    // Sistema de borradores
+    private var currentDraft: String = ""
+    private val draftSaveHandler = Handler(Looper.getMainLooper())
+    private var draftSaveRunnable: Runnable? = null
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -168,6 +176,7 @@ class ChatActivity : BaseActivity() {
                 saveMessages()
 
                 messageEditText.setText("")
+                clearDraft()  // Limpiar borrador al enviar
                 scrollToBottom()
 
                 val toastText = when {
@@ -195,6 +204,10 @@ class ChatActivity : BaseActivity() {
                     }
                 }
             }
+            
+            // Configurar sistema de borradores
+            setupDraftSystem()
+            
         } catch (e: Exception) {
             val errorMessage = "Error al iniciar chat: ${e.message}\n\nStack trace:\n${e.stackTraceToString()}"
             showErrorDialog("Error al iniciar ChatActivity", errorMessage)
@@ -205,11 +218,22 @@ class ChatActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         startMessagePolling()
+        // Cargar borrador guardado
+        loadDraft()
     }
 
     override fun onPause() {
         super.onPause()
         stopMessagePolling()
+        // Guardar borrador al pausar
+        saveDraftImmediately()
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Guardar borrador al destruir
+        saveDraftImmediately()
+        draftSaveRunnable?.let { draftSaveHandler.removeCallbacks(it) }
     }
     
     private fun showErrorDialog(title: String, message: String) {
@@ -623,4 +647,178 @@ class ChatActivity : BaseActivity() {
             deletedMessageKeys.addAll(saved)
         }
     }
+    
+    // ========== Sistema de Borradores ==========
+    
+    /**
+     * Configura el sistema de borradores con auto-guardado mientras se escribe
+     */
+    private fun setupDraftSystem() {
+        messageEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                currentDraft = s?.toString() ?: ""
+                // Auto-guardar después de 1 segundo de inactividad
+                scheduleDraftSave()
+            }
+        })
+        
+        // Configurar long-press en el campo de texto para mostrar opciones de borrador
+        messageEditText.setOnLongClickListener {
+            if (currentDraft.isNotEmpty()) {
+                showDraftOptionsDialog()
+                true
+            } else {
+                false
+            }
+        }
+    }
+    
+    /**
+     * Programa el guardado del borrador después de un delay
+     */
+    private fun scheduleDraftSave() {
+        draftSaveRunnable?.let { draftSaveHandler.removeCallbacks(it) }
+        draftSaveRunnable = Runnable {
+            saveDraftImmediately()
+        }
+        draftSaveHandler.postDelayed(draftSaveRunnable!!, 1000) // 1 segundo
+    }
+    
+    /**
+     * Guarda el borrador inmediatamente
+     */
+    private fun saveDraftImmediately() {
+        val text = messageEditText.text?.toString() ?: ""
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val key = KEY_DRAFT_PREFIX + contactId
+        
+        if (text.isEmpty()) {
+            prefs.edit().remove(key).apply()
+        } else {
+            val draftData = JSONObject().apply {
+                put("text", text)
+                put("timestamp", System.currentTimeMillis())
+                put("contactName", contactName)
+            }
+            prefs.edit().putString(key, draftData.toString()).apply()
+        }
+    }
+    
+    /**
+     * Carga el borrador guardado
+     */
+    private fun loadDraft() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val key = KEY_DRAFT_PREFIX + contactId
+        val draftJson = prefs.getString(key, null)
+        
+        if (!draftJson.isNullOrEmpty()) {
+            try {
+                val draftData = JSONObject(draftJson)
+                val text = draftData.optString("text", "")
+                if (text.isNotEmpty() && messageEditText.text.isNullOrEmpty()) {
+                    messageEditText.setText(text)
+                    messageEditText.setSelection(text.length) // Cursor al final
+                    currentDraft = text
+                    
+                    // Mostrar indicador de borrador recuperado
+                    Toast.makeText(this, "📝 Borrador recuperado", Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Exception) {
+                // Ignorar errores de parsing
+            }
+        }
+    }
+    
+    /**
+     * Elimina el borrador guardado
+     */
+    private fun clearDraft() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val key = KEY_DRAFT_PREFIX + contactId
+        prefs.edit().remove(key).apply()
+        currentDraft = ""
+    }
+    
+    /**
+     * Muestra diálogo con opciones para el borrador
+     */
+    private fun showDraftOptionsDialog() {
+        val options = arrayOf(
+            "📤 Enviar borrador",
+            "🗑️ Eliminar borrador",
+            "📋 Copiar borrador",
+            "❌ Cancelar"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📝 Opciones de borrador")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> { // Enviar
+                        sendButton.performClick()
+                    }
+                    1 -> { // Eliminar
+                        messageEditText.setText("")
+                        clearDraft()
+                        Toast.makeText(this, "Borrador eliminado", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> { // Copiar
+                        copyToClipboard(currentDraft)
+                        Toast.makeText(this, "Borrador copiado", Toast.LENGTH_SHORT).show()
+                    }
+                    // 3 -> Cancelar, no hacer nada
+                }
+            }
+            .show()
+    }
+    
+    companion object {
+        /**
+         * Obtiene todos los borradores guardados para mostrar en la lista de chats
+         */
+        fun getAllDrafts(context: Context): Map<String, DraftInfo> {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val drafts = mutableMapOf<String, DraftInfo>()
+            
+            prefs.all.forEach { (key, value) ->
+                if (key.startsWith(KEY_DRAFT_PREFIX) && value is String) {
+                    try {
+                        val contactId = key.removePrefix(KEY_DRAFT_PREFIX)
+                        val draftData = JSONObject(value)
+                        val text = draftData.optString("text", "")
+                        val timestamp = draftData.optLong("timestamp", 0)
+                        val contactName = draftData.optString("contactName", "")
+                        
+                        if (text.isNotEmpty()) {
+                            drafts[contactId] = DraftInfo(text, timestamp, contactName)
+                        }
+                    } catch (_: Exception) {
+                        // Ignorar errores
+                    }
+                }
+            }
+            
+            return drafts
+        }
+        
+        /**
+         * Elimina un borrador específico
+         */
+        fun deleteDraft(context: Context, contactId: String) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().remove(KEY_DRAFT_PREFIX + contactId).apply()
+        }
+    }
 }
+
+/**
+ * Información de un borrador
+ */
+data class DraftInfo(
+    val text: String,
+    val timestamp: Long,
+    val contactName: String
+)
