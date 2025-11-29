@@ -1,12 +1,16 @@
 package com.hamtaro.toxmessenger.fragments
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.hamtaro.hamchat.server.LocalDatabase
 import com.hamtaro.toxmessenger.HamtaroApplication
 import com.hamtaro.toxmessenger.R
 
@@ -14,6 +18,9 @@ class SettingsFragment : Fragment() {
     
     private lateinit var languageRadioGroup: RadioGroup
     private lateinit var themeRadioGroup: RadioGroup
+    private lateinit var clearDatabaseButton: Button
+    private lateinit var dbStatsText: TextView
+    private lateinit var localDatabase: LocalDatabase
     
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -26,11 +33,16 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         
+        localDatabase = LocalDatabase(requireContext())
+        
         languageRadioGroup = view.findViewById(R.id.language_radio_group)
         themeRadioGroup = view.findViewById(R.id.theme_radio_group)
+        clearDatabaseButton = view.findViewById(R.id.btn_clear_database)
+        dbStatsText = view.findViewById(R.id.db_stats)
         
         setupCurrentSettings()
         setupListeners()
+        updateDbStats()
     }
     
     private fun setupCurrentSettings() {
@@ -71,6 +83,87 @@ class SettingsFragment : Fragment() {
             HamtaroApplication.instance.saveTheme(theme)
             Toast.makeText(context, "Theme changed", Toast.LENGTH_SHORT).show()
             activity?.recreate()
+        }
+        
+        // Botón para limpiar base de datos
+        clearDatabaseButton.setOnClickListener {
+            showClearDatabaseDialog()
+        }
+    }
+    
+    private fun updateDbStats() {
+        try {
+            val stats = localDatabase.getStats()
+            dbStatsText.text = "Usuarios: ${stats["users"]} | Mensajes: ${stats["messages"]} | Contactos: ${stats["contacts"]}"
+        } catch (e: Exception) {
+            dbStatsText.text = "Error al obtener estadísticas"
+        }
+    }
+    
+    private fun showClearDatabaseDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("🗑️ Limpiar Base de Datos")
+            .setMessage("¿Estás seguro? Esto eliminará:\n\n• Todos los usuarios\n• Todos los mensajes\n• Todos los contactos\n• Todos los tokens\n\nEsta acción NO se puede deshacer.")
+            .setPositiveButton("Sí, limpiar") { _, _ ->
+                clearDatabase()
+            }
+            .setNegativeButton("Cancelar", null)
+            .setIcon(android.R.drawable.ic_dialog_alert)
+            .show()
+    }
+    
+    private fun clearDatabase() {
+        try {
+            // Obtener estadísticas antes
+            val statsBefore = localDatabase.getStats()
+            
+            // Limpiar BD
+            localDatabase.resetDatabase()
+            
+            // Limpiar SharedPreferences de chats locales
+            val prefs = requireContext().getSharedPreferences("hamchat_settings", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            // Limpiar todas las claves de chat
+            prefs.all.keys.filter { 
+                it.startsWith("chat_") || 
+                it.startsWith("pending_") || 
+                it.startsWith("last_msg_id_") ||
+                it.startsWith("inbox_last_id_") ||
+                it.startsWith("deleted_msgs_")
+            }.forEach { key ->
+                editor.remove(key)
+            }
+            editor.apply()
+            
+            // Obtener estadísticas después
+            val statsAfter = localDatabase.getStats()
+            
+            // Actualizar UI
+            updateDbStats()
+            
+            val message = """
+                ✅ Base de datos limpiada
+                
+                Antes:
+                • Usuarios: ${statsBefore["users"]}
+                • Mensajes: ${statsBefore["messages"]}
+                • Contactos: ${statsBefore["contacts"]}
+                
+                Después:
+                • Usuarios: ${statsAfter["users"]}
+                • Mensajes: ${statsAfter["messages"]}
+                • Contactos: ${statsAfter["contacts"]}
+            """.trimIndent()
+            
+            AlertDialog.Builder(requireContext())
+                .setTitle("✅ Completado")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show()
+                
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 }
