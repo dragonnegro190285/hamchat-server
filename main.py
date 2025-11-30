@@ -157,6 +157,54 @@ def create_tables() -> None:
         """
     )
 
+    # Grupos de chat
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            creator_id INTEGER NOT NULL,
+            avatar_url TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(creator_id) REFERENCES users(id)
+        );
+        """
+    )
+
+    # Miembros de grupos
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS group_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            role TEXT DEFAULT 'member',
+            joined_at TEXT NOT NULL,
+            UNIQUE(group_id, user_id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        """
+    )
+
+    # Mensajes de grupo
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS group_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            sender_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            local_id TEXT,
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(sender_id) REFERENCES users(id)
+        );
+        """
+    )
+
     conn.commit()
     conn.close()
     
@@ -300,6 +348,53 @@ class InboxItemResponse(BaseModel):
     last_message: str
     last_message_at: str
     last_message_id: int
+
+
+# ---------- Modelos para Grupos ----------
+
+class CreateGroupRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    member_ids: List[int] = []  # IDs de usuarios a agregar al grupo
+
+
+class GroupResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    creator_id: int
+    created_at: str
+    member_count: int
+
+
+class GroupMemberResponse(BaseModel):
+    user_id: int
+    username: str
+    phone_e164: str
+    role: str
+    joined_at: str
+
+
+class GroupMessageRequest(BaseModel):
+    group_id: int
+    content: str = Field(..., min_length=1, max_length=1000)
+    local_id: Optional[str] = None
+    sent_at: Optional[str] = None
+
+
+class GroupMessageResponse(BaseModel):
+    id: int
+    group_id: int
+    sender_id: int
+    sender_name: str
+    content: str
+    created_at: str
+    sent_at: Optional[str] = None
+    local_id: Optional[str] = None
+
+
+class AddGroupMemberRequest(BaseModel):
+    user_id: int
 
 
 # ---------- Auth utilities ----------
@@ -853,6 +948,373 @@ def delete_contact(contact_user_id: int, current_user_id: int = Depends(get_user
         raise HTTPException(status_code=404, detail="contact not found")
 
     return {"status": "ok"}
+
+
+# ---------- Endpoints de Grupos ----------
+
+@app.post("/api/groups", response_model=GroupResponse)
+def create_group(req: CreateGroupRequest, current_user_id: int = Depends(get_user_id_from_token)) -> GroupResponse:
+    """Crear un nuevo grupo de chat"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    created_at = now_iso()
+    
+    # Crear el grupo
+    cur.execute(
+        """
+        INSERT INTO groups (name, description, creator_id, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (req.name, req.description, current_user_id, created_at),
+    )
+    group_id = cur.lastrowid
+    
+    # Agregar al creador como admin
+    cur.execute(
+        """
+        INSERT INTO group_members (group_id, user_id, role, joined_at)
+        VALUES (?, ?, 'admin', ?)
+        """,
+        (group_id, current_user_id, created_at),
+    )
+    
+    # Agregar miembros adicionales
+    for member_id in req.member_ids:
+        if member_id != current_user_id:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO group_members (group_id, user_id, role, joined_at)
+                    VALUES (?, ?, 'member', ?)
+                    """,
+                    (group_id, member_id, created_at),
+                )
+            except sqlite3.IntegrityError:
+                pass  # Usuario ya está en el grupo o no existe
+    
+    conn.commit()
+    
+    # Contar miembros
+    cur.execute("SELECT COUNT(*) FROM group_members WHERE group_id = ?", (group_id,))
+    member_count = cur.fetchone()[0]
+    
+    conn.close()
+    
+    return GroupResponse(
+        id=group_id,
+        name=req.name,
+        description=req.description,
+        creator_id=current_user_id,
+        created_at=created_at,
+        member_count=member_count,
+    )
+
+
+@app.get("/api/groups", response_model=List[GroupResponse])
+def get_my_groups(current_user_id: int = Depends(get_user_id_from_token)) -> List[GroupResponse]:
+    """Obtener todos los grupos del usuario"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT g.id, g.name, g.description, g.creator_id, g.created_at,
+               (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count
+        FROM groups g
+        INNER JOIN group_members gm ON g.id = gm.group_id
+        WHERE gm.user_id = ?
+        ORDER BY g.created_at DESC
+        """,
+        (current_user_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        GroupResponse(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            creator_id=row["creator_id"],
+            created_at=row["created_at"],
+            member_count=row["member_count"],
+        )
+        for row in rows
+    ]
+
+
+@app.get("/api/groups/{group_id}", response_model=GroupResponse)
+def get_group(group_id: int, current_user_id: int = Depends(get_user_id_from_token)) -> GroupResponse:
+    """Obtener información de un grupo"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario es miembro del grupo
+    cur.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, current_user_id),
+    )
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=403, detail="not a member of this group")
+    
+    cur.execute(
+        """
+        SELECT g.id, g.name, g.description, g.creator_id, g.created_at,
+               (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) as member_count
+        FROM groups g
+        WHERE g.id = ?
+        """,
+        (group_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    
+    if row is None:
+        raise HTTPException(status_code=404, detail="group not found")
+    
+    return GroupResponse(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        creator_id=row["creator_id"],
+        created_at=row["created_at"],
+        member_count=row["member_count"],
+    )
+
+
+@app.get("/api/groups/{group_id}/members", response_model=List[GroupMemberResponse])
+def get_group_members(group_id: int, current_user_id: int = Depends(get_user_id_from_token)) -> List[GroupMemberResponse]:
+    """Obtener miembros de un grupo"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario es miembro del grupo
+    cur.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, current_user_id),
+    )
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=403, detail="not a member of this group")
+    
+    cur.execute(
+        """
+        SELECT gm.user_id, u.username, u.phone_e164, gm.role, gm.joined_at
+        FROM group_members gm
+        INNER JOIN users u ON gm.user_id = u.id
+        WHERE gm.group_id = ?
+        ORDER BY gm.role DESC, gm.joined_at ASC
+        """,
+        (group_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        GroupMemberResponse(
+            user_id=row["user_id"],
+            username=row["username"],
+            phone_e164=row["phone_e164"],
+            role=row["role"],
+            joined_at=row["joined_at"],
+        )
+        for row in rows
+    ]
+
+
+@app.post("/api/groups/{group_id}/members")
+def add_group_member(group_id: int, req: AddGroupMemberRequest, current_user_id: int = Depends(get_user_id_from_token)) -> dict:
+    """Agregar un miembro al grupo (solo admin)"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario actual es admin del grupo
+    cur.execute(
+        "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, current_user_id),
+    )
+    row = cur.fetchone()
+    if row is None or row["role"] != "admin":
+        conn.close()
+        raise HTTPException(status_code=403, detail="only admins can add members")
+    
+    # Verificar que el usuario a agregar existe
+    cur.execute("SELECT id FROM users WHERE id = ?", (req.user_id,))
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="user not found")
+    
+    try:
+        cur.execute(
+            """
+            INSERT INTO group_members (group_id, user_id, role, joined_at)
+            VALUES (?, ?, 'member', ?)
+            """,
+            (group_id, req.user_id, now_iso()),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail="user already in group")
+    
+    conn.close()
+    return {"status": "ok"}
+
+
+@app.delete("/api/groups/{group_id}/members/{user_id}")
+def remove_group_member(group_id: int, user_id: int, current_user_id: int = Depends(get_user_id_from_token)) -> dict:
+    """Eliminar un miembro del grupo (admin o el mismo usuario)"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar permisos
+    cur.execute(
+        "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, current_user_id),
+    )
+    row = cur.fetchone()
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=403, detail="not a member of this group")
+    
+    # Solo admin puede eliminar otros, o el usuario puede salir él mismo
+    if row["role"] != "admin" and user_id != current_user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="only admins can remove other members")
+    
+    cur.execute(
+        "DELETE FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+    
+    return {"status": "ok"}
+
+
+@app.post("/api/groups/messages", response_model=GroupMessageResponse)
+def send_group_message(req: GroupMessageRequest, current_user_id: int = Depends(get_user_id_from_token)) -> GroupMessageResponse:
+    """Enviar un mensaje a un grupo"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario es miembro del grupo
+    cur.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+        (req.group_id, current_user_id),
+    )
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=403, detail="not a member of this group")
+    
+    # Deduplicación por local_id
+    if req.local_id:
+        cur.execute(
+            "SELECT id FROM group_messages WHERE group_id = ? AND sender_id = ? AND local_id = ?",
+            (req.group_id, current_user_id, req.local_id),
+        )
+        existing = cur.fetchone()
+        if existing:
+            # Ya existe, devolver el mensaje existente
+            cur.execute(
+                """
+                SELECT gm.id, gm.group_id, gm.sender_id, u.username as sender_name,
+                       gm.content, gm.created_at, gm.sent_at, gm.local_id
+                FROM group_messages gm
+                INNER JOIN users u ON gm.sender_id = u.id
+                WHERE gm.id = ?
+                """,
+                (existing["id"],),
+            )
+            row = cur.fetchone()
+            conn.close()
+            return GroupMessageResponse(
+                id=row["id"],
+                group_id=row["group_id"],
+                sender_id=row["sender_id"],
+                sender_name=row["sender_name"],
+                content=row["content"],
+                created_at=row["created_at"],
+                sent_at=row["sent_at"],
+                local_id=row["local_id"],
+            )
+    
+    created_at = now_iso()
+    sent_at = req.sent_at or created_at
+    
+    cur.execute(
+        """
+        INSERT INTO group_messages (group_id, sender_id, content, created_at, sent_at, local_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (req.group_id, current_user_id, req.content, created_at, sent_at, req.local_id),
+    )
+    msg_id = cur.lastrowid
+    conn.commit()
+    
+    # Obtener nombre del remitente
+    cur.execute("SELECT username FROM users WHERE id = ?", (current_user_id,))
+    sender_name = cur.fetchone()["username"]
+    
+    conn.close()
+    
+    return GroupMessageResponse(
+        id=msg_id,
+        group_id=req.group_id,
+        sender_id=current_user_id,
+        sender_name=sender_name,
+        content=req.content,
+        created_at=created_at,
+        sent_at=sent_at,
+        local_id=req.local_id,
+    )
+
+
+@app.get("/api/groups/{group_id}/messages", response_model=List[GroupMessageResponse])
+def get_group_messages(group_id: int, since_id: int = 0, current_user_id: int = Depends(get_user_id_from_token)) -> List[GroupMessageResponse]:
+    """Obtener mensajes de un grupo"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario es miembro del grupo
+    cur.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, current_user_id),
+    )
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=403, detail="not a member of this group")
+    
+    cur.execute(
+        """
+        SELECT gm.id, gm.group_id, gm.sender_id, u.username as sender_name,
+               gm.content, gm.created_at, gm.sent_at, gm.local_id
+        FROM group_messages gm
+        INNER JOIN users u ON gm.sender_id = u.id
+        WHERE gm.group_id = ? AND gm.id > ?
+        ORDER BY gm.id ASC
+        LIMIT 100
+        """,
+        (group_id, since_id),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        GroupMessageResponse(
+            id=row["id"],
+            group_id=row["group_id"],
+            sender_id=row["sender_id"],
+            sender_name=row["sender_name"],
+            content=row["content"],
+            created_at=row["created_at"],
+            sent_at=row["sent_at"],
+            local_id=row["local_id"],
+        )
+        for row in rows
+    ]
 
 
 # ---------- Admin endpoints ----------
