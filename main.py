@@ -171,6 +171,23 @@ def create_tables() -> None:
         );
         """
     )
+    
+    # Notificaciones de contacto eliminado
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contact_deleted_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deleted_by_user_id INTEGER NOT NULL,
+            notify_user_id INTEGER NOT NULL,
+            deleted_by_username TEXT NOT NULL,
+            deleted_by_phone TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            seen INTEGER DEFAULT 0,
+            FOREIGN KEY(deleted_by_user_id) REFERENCES users(id),
+            FOREIGN KEY(notify_user_id) REFERENCES users(id)
+        );
+        """
+    )
 
     # Auth tokens for simple token-based auth
     cur.execute(
@@ -938,6 +955,130 @@ def get_full_backup(current_user_id: int = Depends(get_user_id_from_token)):
         "total_contacts": len(contacts),
         "backup_date": now_iso()
     }
+
+
+# ---------- Contact deletion with notification ----------
+
+
+class DeleteContactRequest(BaseModel):
+    contact_user_id: int
+
+
+class ContactDeletedNotification(BaseModel):
+    id: int
+    deleted_by_user_id: int
+    deleted_by_username: str
+    deleted_by_phone: str
+    created_at: str
+
+
+@app.post("/api/contacts/delete")
+def delete_contact_with_notification(
+    req: DeleteContactRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Eliminar un contacto y notificar al otro usuario.
+    El otro usuario recibirá una notificación para decidir si conservar o eliminar el historial.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Obtener información del usuario que elimina
+    cur.execute("SELECT username, phone_e164 FROM users WHERE id = ?", (current_user_id,))
+    current_user = cur.fetchone()
+    
+    if not current_user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="user not found")
+    
+    # Verificar que el contacto existe
+    cur.execute("SELECT id FROM users WHERE id = ?", (req.contact_user_id,))
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="contact not found")
+    
+    # Crear notificación para el otro usuario
+    cur.execute(
+        """
+        INSERT INTO contact_deleted_notifications 
+        (deleted_by_user_id, notify_user_id, deleted_by_username, deleted_by_phone, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            current_user_id,
+            req.contact_user_id,
+            current_user["username"],
+            current_user["phone_e164"],
+            now_iso()
+        )
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"🔔 Notificación: {current_user['username']} eliminó a usuario {req.contact_user_id}")
+    
+    return {
+        "success": True,
+        "message": "Contacto eliminado y notificación enviada"
+    }
+
+
+@app.get("/api/contacts/deleted-notifications", response_model=List[ContactDeletedNotification])
+def get_deleted_contact_notifications(
+    current_user_id: int = Depends(get_user_id_from_token)
+) -> List[ContactDeletedNotification]:
+    """
+    Obtener notificaciones de contactos que te han eliminado.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT id, deleted_by_user_id, deleted_by_username, deleted_by_phone, created_at
+        FROM contact_deleted_notifications
+        WHERE notify_user_id = ? AND seen = 0
+        ORDER BY created_at DESC
+        """,
+        (current_user_id,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        ContactDeletedNotification(
+            id=r["id"],
+            deleted_by_user_id=r["deleted_by_user_id"],
+            deleted_by_username=r["deleted_by_username"],
+            deleted_by_phone=r["deleted_by_phone"],
+            created_at=r["created_at"]
+        )
+        for r in rows
+    ]
+
+
+@app.post("/api/contacts/deleted-notifications/{notification_id}/seen")
+def mark_notification_seen(
+    notification_id: int,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Marcar una notificación como vista.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        "UPDATE contact_deleted_notifications SET seen = 1 WHERE id = ? AND notify_user_id = ?",
+        (notification_id, current_user_id)
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return {"success": True}
 
 
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
