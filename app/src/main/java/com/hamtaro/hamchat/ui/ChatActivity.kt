@@ -68,11 +68,15 @@ data class ChatMessage(
     val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
     val isForwarded: Boolean = false,   // Si es un mensaje reenviado
     val isStarred: Boolean = false,     // Si está marcado como favorito/importante
-    val messageType: String = "text",   // "text", "voice", "image" o "system"
+    val messageType: String = "text",   // "text", "voice", "image", "sticker" o "system"
     val audioData: String? = null,      // Base64 encoded audio
     val audioDuration: Int = 0,         // Duración en segundos
     val imageData: String? = null,      // Base64 encoded image
-    val isSystemMessage: Boolean = false // Mensaje del sistema (notificaciones)
+    val isSystemMessage: Boolean = false, // Mensaje del sistema (notificaciones)
+    val isEdited: Boolean = false,      // Si el mensaje fue editado
+    val isDeleted: Boolean = false,     // Si fue eliminado para todos
+    val editedAt: Long? = null,         // Timestamp de edición
+    val scheduledFor: Long? = null      // Si es mensaje programado
 ) {
     /**
      * Obtiene el estado actual del mensaje para mostrar indicador visual
@@ -89,16 +93,11 @@ data class ChatMessage(
     }
     
     /**
-     * Obtiene el icono de estado del mensaje (estilo Ham-Chat)
+     * Obtiene el icono de estado del mensaje (versión Lite - simplificado)
      */
     fun getStatusIcon(): String {
-        return when (getStatus()) {
-            MessageStatus.SENDING -> "🕐"    // Reloj - enviando
-            MessageStatus.SENT -> "📤"       // Enviado
-            MessageStatus.DELIVERED -> "📬"  // Buzón con carta - entregado
-            MessageStatus.READ -> "👀"       // Ojos - leído
-            MessageStatus.FAILED -> "⚠️"    // Advertencia - error
-        }
+        // Versión Lite: sin confirmaciones de lectura detalladas
+        return ""  // No mostrar iconos de estado
     }
 }
 
@@ -3655,6 +3654,10 @@ class ChatActivity : BaseActivity() {
         options.add("📱 Mi código QR")
         actions.add { showMyQrCode() }
         
+        // Stickers de texto
+        options.add("🎨 Stickers")
+        actions.add { showTextStickerPicker() }
+        
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("➕ Adjuntar")
             .setItems(options.toTypedArray()) { _, which ->
@@ -4189,6 +4192,150 @@ class ChatActivity : BaseActivity() {
             canvas.drawText("Error QR", size / 2f, size / 2f, paint)
             bitmap
         }
+    }
+    
+    // ========== Funciones de Edición y Stickers ==========
+    
+    /**
+     * Mostrar selector de stickers de texto
+     */
+    private fun showTextStickerPicker() {
+        val stickers = listOf(
+            // Caritas tipográficas - Felices
+            "n.n", "^_^", "^-^", ":)", ":D", "=)", "=D", "c:",
+            // Caritas tipográficas - Tristes/Cansadas
+            "x.x", "X.X", "x_x", "-.-", "T.T", "T_T", ";-;", ":'(",
+            // Caritas tipográficas - Sorpresa/Enojo
+            ">.<", ">_<", "O.O", "o.o", "O_O", "D:", ":O", ":/",
+            // Caritas tipográficas - Amor/Cariño
+            "<3", "♥", "uwu", "UwU", ":3", "=3", "^w^", "owo",
+            // Caritas tipográficas - Otras
+            ":P", ":p", "xD", "XD", ";)", ";D", "B)", ":B",
+            // Kaomojis
+            "(╯°□°)╯", "(ノಠ益ಠ)ノ", "¯\\_(ツ)_/¯", "(づ｡◕‿‿◕｡)づ",
+            "ಠ_ಠ", "(◕‿◕)", "(*^_^*)", "(≧◡≦)",
+            // Emojis básicos
+            "🐹", "❤️", "👍", "😊", "🎉", "✨", "💕", "🔥"
+        )
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+        }
+        
+        val gridLayout = android.widget.GridLayout(this).apply {
+            columnCount = 8
+        }
+        
+        stickers.forEach { sticker ->
+            val btn = Button(this).apply {
+                text = sticker
+                textSize = 24f
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setPadding(8, 8, 8, 8)
+                setOnClickListener {
+                    sendStickerMessage(sticker)
+                }
+            }
+            gridLayout.addView(btn)
+        }
+        
+        container.addView(gridLayout)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Stickers")
+            .setView(ScrollView(this).apply { addView(container) })
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    /**
+     * Enviar sticker como mensaje
+     */
+    private fun sendStickerMessage(sticker: String) {
+        val message = ChatMessage(
+            sender = "Yo",
+            content = sticker,
+            timestamp = System.currentTimeMillis(),
+            localId = java.util.UUID.randomUUID().toString(),
+            messageType = "sticker"
+        )
+        messages.add(message)
+        saveMessages()
+        renderMessages()
+        scrollToBottom()
+    }
+    
+    // showMessageOptionsDialog ya existe arriba, se modificará para incluir editar/eliminar
+    
+    /**
+     * Editar mensaje
+     */
+    private fun showEditMessageDialog(message: ChatMessage) {
+        val input = EditText(this).apply {
+            setText(message.content)
+            setPadding(32, 24, 32, 24)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("✏️ Editar mensaje")
+            .setView(input)
+            .setPositiveButton("Guardar") { _, _ ->
+                val newContent = input.text.toString().trim()
+                if (newContent.isNotEmpty() && newContent != message.content) {
+                    val index = messages.indexOfFirst { it.localId == message.localId }
+                    if (index >= 0) {
+                        messages[index] = message.copy(
+                            content = newContent,
+                            isEdited = true,
+                            editedAt = System.currentTimeMillis()
+                        )
+                        saveMessages()
+                        renderMessages()
+                        Toast.makeText(this, "✏️ Mensaje editado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Eliminar mensaje
+     */
+    private fun showDeleteMessageDialog(message: ChatMessage) {
+        val options = arrayOf("🗑️ Eliminar para mí", "🗑️ Eliminar para todos")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Eliminar mensaje")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        // Eliminar solo para mí
+                        messages.removeAll { it.localId == message.localId }
+                        saveMessages()
+                        renderMessages()
+                        Toast.makeText(this, "Mensaje eliminado", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> {
+                        // Eliminar para todos
+                        val index = messages.indexOfFirst { it.localId == message.localId }
+                        if (index >= 0) {
+                            messages[index] = message.copy(
+                                content = "🚫 Mensaje eliminado",
+                                isDeleted = true,
+                                imageData = null,
+                                audioData = null
+                            )
+                            saveMessages()
+                            renderMessages()
+                            Toast.makeText(this, "Mensaje eliminado para todos", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 }
 

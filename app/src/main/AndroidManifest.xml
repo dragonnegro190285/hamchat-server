@@ -110,6 +110,20 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 🔔 Firebase Cloud Messaging Service -->
+        <service
+            android:name=".service.HamChatMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- FCM Default notification channel -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="hamchat_messages" />
+
     </application>
 
 </manifest>

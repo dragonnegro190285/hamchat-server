@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Ham-Chat</string>
+    <string name="app_name">Ham-Chat Lite</string>
     
     <!-- Login Screen -->
     <string name="username">Usuario</string>
