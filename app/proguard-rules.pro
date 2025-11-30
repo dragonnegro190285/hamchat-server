@@ -41,3 +41,29 @@
 # Keep model classes
 -keep class com.hamtaro.toxmessenger.service.** { *; }
 -keep class com.hamtaro.toxmessenger.game.** { *; }
+
+# Keep HamChat classes
+-keep class com.hamtaro.hamchat.** { *; }
+-keep class com.hamtaro.hamchat.network.** { *; }
+
+# OkHttp / Retrofit
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn retrofit2.**
+-keep class okhttp3.** { *; }
+-keep class retrofit2.** { *; }
+
+# Missing classes - ignore warnings
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+
+# Google Tink
+-dontwarn com.google.crypto.tink.**
+-keep class com.google.crypto.tink.** { *; }
+
+# Gson
+-keep class com.google.gson.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*

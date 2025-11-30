@@ -1,40 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<network-security-config xmlns:android="http://schemas.android.com/apk/res/android">
+<network-security-config>
     
-    <!-- 🔒 SECURE NETWORK CONFIGURATION 🔒 -->
+    <!-- Base config - allow cleartext for local development -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
     
-    <domain-config cleartextTrafficPermitted="false">
-        <!-- Block all cleartext traffic -->
-        <domain includeSubdomains="true">untrusted.example.com</domain>
-    </domain-config>
-    
-    <!-- Allow only secure domains -->
+    <!-- Allow secure domains -->
     <domain-config cleartextTrafficPermitted="true">
-        <!-- Tox network nodes (use HTTPS when possible) -->
         <domain includeSubdomains="true">tox.chat</domain>
         <domain includeSubdomains="true">nodes.tox.chat</domain>
         <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">hamchat-server.onrender.com</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
     </domain-config>
     
-    <!-- Certificate pinning for critical services -->
-    <domain-config>
-        <domain includeSubdomains="true">github.com</domain>
-        <pin-set>
-            <!-- GitHub certificates (update regularly) -->
-            <pin digest="SHA-256">WoiWRyIOVNa9ihaBmiR4WUrOZpaID9IbNTH17tO8/Yw=</pin>
-            <pin digest="SHA-256">RRM1dGqnDFsCJXBTHky16qv1OqxUIcnLru2WcH/4mZQ=</pin>
-            <!-- Backup pin -->
-            <pin digest="SHA-256">K87oLKWMVbkUa4uF+2A1UYCUf9BzX0IXBzjs6Lb2gq4=</pin>
-        </pin-set>
-    </domain-config>
-    
-    <!-- Trust store configuration -->
-    <trust-anchors>
-        <certificates src="system"/>
-        <certificates src="user"/>
-    </trust-anchors>
-    
-    <!-- Debug overrides (only for debug builds) -->
+    <!-- Debug overrides -->
     <debug-overrides>
         <trust-anchors>
             <certificates src="system"/>

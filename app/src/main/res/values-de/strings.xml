@@ -17,7 +17,6 @@
     <string name="type_message">Nachricht eingeben...</string>
     <string name="send">Senden</string>
     <string name="add_friend">Freund hinzufügen</string>
-    <string name="tox_id">Tox ID</string>
     
     <!-- Settings -->
     <string name="language">Sprache</string>
