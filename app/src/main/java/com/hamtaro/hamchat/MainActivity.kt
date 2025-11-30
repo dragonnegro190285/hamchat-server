@@ -73,6 +73,7 @@ class MainActivity : BaseActivity() {
     private lateinit var openMediaFolderButton: Button
     private lateinit var checkServerButton: Button
     private lateinit var helpButton: Button
+    private lateinit var backupButton: Button
     private var userLabelTextView: TextView? = null
     private var phoneLabelTextView: TextView? = null
     private val idleHandler = Handler(Looper.getMainLooper())
@@ -1151,6 +1152,11 @@ class MainActivity : BaseActivity() {
         
         helpButton.setOnClickListener {
             showHelpDialog()
+        }
+        
+        backupButton = findViewById(R.id.btn_backup)
+        backupButton.setOnClickListener {
+            showBackupOptions()
         }
 
         updateChatList()
@@ -2620,6 +2626,295 @@ class MainActivity : BaseActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Error al abrir grupo: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+    
+    // ========== Sistema de Respaldo y Recuperación ==========
+    
+    /**
+     * Obtiene un ID único del dispositivo para respaldos
+     */
+    private fun getBackupDeviceId(): String {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        var deviceId = prefs.getString("device_unique_id", null)
+        
+        if (deviceId == null) {
+            deviceId = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("device_unique_id", deviceId).apply()
+        }
+        
+        return deviceId
+    }
+    
+    /**
+     * Obtiene el nombre del dispositivo
+     */
+    private fun getDeviceName(): String {
+        return "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+    }
+    
+    /**
+     * Muestra opciones de respaldo/recuperación
+     */
+    fun showBackupOptions() {
+        val options = arrayOf(
+            "💾 Crear respaldo ahora",
+            "📥 Restaurar desde respaldo",
+            "📋 Ver mis respaldos",
+            "🗑️ Eliminar respaldo"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("☁️ Respaldo y Recuperación")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> createBackup()
+                    1 -> showRestoreDialog()
+                    2 -> showBackupsList()
+                    3 -> showDeleteBackupDialog()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Crea un respaldo de todos los chats
+     */
+    private fun createBackup() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes estar registrado para crear respaldos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        Toast.makeText(this, "Creando respaldo...", Toast.LENGTH_SHORT).show()
+        
+        // Recopilar todos los chats
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val allData = mutableMapOf<String, String>()
+        
+        prefs.all.forEach { (key, value) ->
+            if (key.startsWith("chat_") || key.startsWith("media_") || key.startsWith("starred_")) {
+                allData[key] = value.toString()
+            }
+        }
+        
+        val backupJson = org.json.JSONObject(allData as Map<*, *>).toString()
+        
+        val request = com.hamtaro.hamchat.network.BackupRequest(
+            device_id = getBackupDeviceId(),
+            device_name = getDeviceName(),
+            backup_data = backupJson
+        )
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.createBackup("Bearer $token", request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "✅ Respaldo creado exitosamente", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al crear respaldo", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra lista de respaldos para restaurar
+     */
+    private fun showRestoreDialog() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes estar registrado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.listBackups("Bearer $token")
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.BackupListResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.BackupListResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val backups = response.body()!!.backups
+                        if (backups.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "No hay respaldos disponibles", Toast.LENGTH_SHORT).show()
+                            return
+                        }
+                        
+                        val options = backups.map { 
+                            "📱 ${it.device_name ?: "Dispositivo"}\n📅 ${it.updated_at.take(10)}" 
+                        }.toTypedArray()
+                        
+                        androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("📥 Selecciona respaldo a restaurar")
+                            .setItems(options) { _, which ->
+                                confirmRestore(backups[which])
+                            }
+                            .setNegativeButton("Cancelar", null)
+                            .show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Confirma y ejecuta la restauración
+     */
+    private fun confirmRestore(backup: com.hamtaro.hamchat.network.BackupListItem) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("⚠️ Restaurar respaldo")
+            .setMessage("¿Restaurar chats desde \"${backup.device_name}\"?\n\nEsto reemplazará los chats actuales.")
+            .setPositiveButton("Restaurar") { _, _ ->
+                restoreBackup(backup.device_id)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Restaura un respaldo específico
+     */
+    private fun restoreBackup(deviceId: String) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        Toast.makeText(this, "Restaurando...", Toast.LENGTH_SHORT).show()
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.restoreBackup("Bearer $token", deviceId)
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.RestoreResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.RestoreResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.RestoreResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val data = response.body()!!
+                        
+                        try {
+                            val json = org.json.JSONObject(data.backup_data)
+                            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            val editor = prefs.edit()
+                            
+                            json.keys().forEach { key ->
+                                editor.putString(key, json.getString(key))
+                            }
+                            
+                            editor.apply()
+                            
+                            Toast.makeText(this@MainActivity, "✅ Respaldo restaurado", Toast.LENGTH_SHORT).show()
+                            updateChatList()
+                        } catch (e: Exception) {
+                            Toast.makeText(this@MainActivity, "Error al procesar respaldo", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al restaurar", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.RestoreResponse>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra lista de respaldos
+     */
+    private fun showBackupsList() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes estar registrado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.listBackups("Bearer $token")
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.BackupListResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.BackupListResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val backups = response.body()!!.backups
+                        
+                        if (backups.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "No hay respaldos", Toast.LENGTH_SHORT).show()
+                            return
+                        }
+                        
+                        val message = StringBuilder("📋 Tus respaldos:\n\n")
+                        backups.forEach { b ->
+                            message.append("📱 ${b.device_name ?: "Dispositivo"}\n")
+                            message.append("   📅 ${b.updated_at.take(10)}\n")
+                            message.append("   💾 ${b.data_size / 1024} KB\n\n")
+                        }
+                        
+                        androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("📋 Mis respaldos (${backups.size})")
+                            .setMessage(message.toString())
+                            .setPositiveButton("Cerrar", null)
+                            .show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra diálogo para eliminar respaldo
+     */
+    private fun showDeleteBackupDialog() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) return
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.listBackups("Bearer $token")
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.BackupListResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.BackupListResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val backups = response.body()!!.backups
+                        if (backups.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "No hay respaldos", Toast.LENGTH_SHORT).show()
+                            return
+                        }
+                        
+                        val options = backups.map { "📱 ${it.device_name ?: it.device_id}" }.toTypedArray()
+                        
+                        androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle("🗑️ Eliminar respaldo")
+                            .setItems(options) { _, which ->
+                                deleteBackup(backups[which].device_id)
+                            }
+                            .setNegativeButton("Cancelar", null)
+                            .show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.BackupListResponse>, t: Throwable) {}
+            })
+    }
+    
+    /**
+     * Elimina un respaldo
+     */
+    private fun deleteBackup(deviceId: String) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.deleteBackup("Bearer $token", deviceId)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "✅ Respaldo eliminado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {}
+            })
     }
     
     /**

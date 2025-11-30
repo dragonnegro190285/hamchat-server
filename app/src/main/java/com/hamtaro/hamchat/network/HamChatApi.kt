@@ -178,6 +178,35 @@ data class PendingMediaResponse(
     val count: Int
 )
 
+// ========== Backup/Restore Models ==========
+
+data class BackupRequest(
+    val device_id: String,
+    val device_name: String?,
+    val backup_data: String  // JSON string con los chats
+)
+
+data class BackupListItem(
+    val id: Int,
+    val device_id: String,
+    val device_name: String?,
+    val created_at: String,
+    val updated_at: String,
+    val data_size: Int
+)
+
+data class BackupListResponse(
+    val backups: List<BackupListItem>,
+    val count: Int
+)
+
+data class RestoreResponse(
+    val device_id: String,
+    val device_name: String?,
+    val backup_data: String,
+    val updated_at: String
+)
+
 interface HamChatApi {
 
     @POST("register")
@@ -313,6 +342,31 @@ interface HamChatApi {
     fun getPendingMedia(
         @Header("Authorization") authHeader: String
     ): Call<PendingMediaResponse>
+    
+    // ========== Backup/Restore ==========
+    
+    @POST("backup")
+    fun createBackup(
+        @Header("Authorization") authHeader: String,
+        @Body body: BackupRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("backup/list")
+    fun listBackups(
+        @Header("Authorization") authHeader: String
+    ): Call<BackupListResponse>
+    
+    @GET("backup/restore/{device_id}")
+    fun restoreBackup(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("device_id") deviceId: String
+    ): Call<RestoreResponse>
+    
+    @DELETE("backup/{device_id}")
+    fun deleteBackup(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("device_id") deviceId: String
+    ): Call<Map<String, Any>>
 }
 
 object HamChatApiClient {
