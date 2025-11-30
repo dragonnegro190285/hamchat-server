@@ -1954,6 +1954,82 @@ def mark_messages_delivered(req: MarkDeliveredRequest, current_user_id: int = De
     return {"marked": marked, "received_at": received_at}
 
 
+class EditMessageRequest(BaseModel):
+    content: str
+
+
+@app.put("/api/messages/{message_id}")
+def edit_message(message_id: int, req: EditMessageRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Editar un mensaje propio (ventana de 15 minutos)"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el mensaje existe y es del usuario
+    cur.execute(
+        "SELECT id, sender_id, created_at FROM messages WHERE id = ?",
+        (message_id,)
+    )
+    row = cur.fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Mensaje no encontrado")
+    
+    if row["sender_id"] != current_user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="No puedes editar mensajes de otros")
+    
+    # Verificar ventana de tiempo (15 minutos)
+    from datetime import datetime, timedelta
+    created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+    now = datetime.now(created_at.tzinfo) if created_at.tzinfo else datetime.now()
+    if (now - created_at) > timedelta(minutes=15):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Tiempo de edición expirado (15 min)")
+    
+    # Actualizar mensaje
+    cur.execute(
+        "UPDATE messages SET content = ? WHERE id = ?",
+        (req.content + " (editado)", message_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "message_id": message_id}
+
+
+@app.delete("/api/messages/{message_id}")
+def delete_message_for_everyone(message_id: int, current_user_id: int = Depends(get_user_id_from_token)):
+    """Eliminar un mensaje para todos (solo el remitente puede hacerlo)"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el mensaje existe y es del usuario
+    cur.execute(
+        "SELECT id, sender_id FROM messages WHERE id = ?",
+        (message_id,)
+    )
+    row = cur.fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Mensaje no encontrado")
+    
+    if row["sender_id"] != current_user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="No puedes eliminar mensajes de otros")
+    
+    # Marcar como eliminado (no borrar físicamente para mantener integridad)
+    cur.execute(
+        "UPDATE messages SET content = '🗑️ Mensaje eliminado', message_type = 'deleted' WHERE id = ?",
+        (message_id,)
+    )
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "message_id": message_id}
+
+
 # ========== Sistema de Relay de Multimedia ==========
 
 # Almacenamiento temporal en memoria (en producción usar Redis o similar)
