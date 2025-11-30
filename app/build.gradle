@@ -29,10 +29,10 @@ android {
     
     signingConfigs {
         release {
-            storeFile file('../hamchat-release.keystore')
-            storePassword 'hamchat2024'
+            storeFile file('../hamchat-goca.keystore')
+            storePassword 'gocacomputacion'
             keyAlias 'hamchat'
-            keyPassword 'hamchat2024'
+            keyPassword 'gocacomputacion'
         }
     }
 
