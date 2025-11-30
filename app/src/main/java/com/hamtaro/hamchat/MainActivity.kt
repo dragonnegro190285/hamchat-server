@@ -59,6 +59,7 @@ import com.hamtaro.hamchat.network.ContactRestoreRequestDto
 import com.hamtaro.hamchat.network.RespondRestoreRequest
 import com.hamtaro.hamchat.network.BlockContactRequest
 import com.hamtaro.hamchat.network.BlockStatusResponse
+import com.hamtaro.hamchat.network.BlockNotificationDto
 
 // ContactItem para UI de MainActivity (diferente de model.Contact)
 data class ContactItem(
@@ -185,6 +186,7 @@ class MainActivity : BaseActivity() {
         startContactPromotionIfNeeded()
         checkDeletedContactNotifications()
         checkRestoreRequests()
+        checkBlockNotifications()
     }
 
     override fun onPause() {
@@ -1320,6 +1322,86 @@ class MainActivity : BaseActivity() {
                 
                 override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
                     Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Verificar si hay notificaciones de bloqueo pendientes
+     */
+    private fun checkBlockNotifications() {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) return
+        
+        HamChatApiClient.api.getBlockNotifications("Bearer $token")
+            .enqueue(object : Callback<List<BlockNotificationDto>> {
+                override fun onResponse(
+                    call: Call<List<BlockNotificationDto>>,
+                    response: Response<List<BlockNotificationDto>>
+                ) {
+                    if (response.isSuccessful) {
+                        val notifications = response.body() ?: emptyList()
+                        notifications.forEach { notification ->
+                            showBlockNotificationDialog(notification)
+                        }
+                    }
+                }
+                
+                override fun onFailure(call: Call<List<BlockNotificationDto>>, t: Throwable) {
+                    // Silencioso
+                }
+            })
+    }
+    
+    /**
+     * Mostrar diálogo de notificación de bloqueo/desbloqueo
+     */
+    private fun showBlockNotificationDialog(notification: BlockNotificationDto) {
+        val isBlocked = notification.action == "blocked"
+        
+        val title = if (isBlocked) "🚫 Has sido bloqueado" else "✅ Has sido desbloqueado"
+        val message = if (isBlocked) {
+            """
+                ${notification.blockerUsername} te ha bloqueado.
+                
+                ⚠️ Ya no puedes enviar ni recibir mensajes con este contacto.
+                
+                Tus conversaciones anteriores se mantienen en tu backup.
+            """.trimIndent()
+        } else {
+            """
+                ${notification.blockerUsername} te ha desbloqueado.
+                
+                ✅ Ahora pueden volver a enviarse mensajes.
+            """.trimIndent()
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Entendido") { _, _ ->
+                markBlockNotificationSeen(notification.id)
+            }
+            .setCancelable(false)
+            .show()
+    }
+    
+    /**
+     * Marcar notificación de bloqueo como vista
+     */
+    private fun markBlockNotificationSeen(notificationId: Int) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken() ?: return
+        
+        HamChatApiClient.api.markBlockNotificationSeen("Bearer $token", notificationId)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    // OK
+                }
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    // Silencioso
                 }
             })
     }

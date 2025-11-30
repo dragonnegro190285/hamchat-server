@@ -499,6 +499,17 @@ interface HamChatApi {
         @Header("Authorization") token: String,
         @retrofit2.http.Path("user_id") userId: Int
     ): Call<BlockStatusResponse>
+    
+    @GET("contacts/block-notifications")
+    fun getBlockNotifications(
+        @Header("Authorization") token: String
+    ): Call<List<BlockNotificationDto>>
+    
+    @POST("contacts/block-notifications/{notification_id}/seen")
+    fun markBlockNotificationSeen(
+        @Header("Authorization") token: String,
+        @retrofit2.http.Path("notification_id") notificationId: Int
+    ): Call<Map<String, Any>>
 }
 
 // Contact deletion models
@@ -557,6 +568,14 @@ data class BlockStatusResponse(
     @SerializedName("i_blocked_them") val iBlockedThem: Boolean,
     @SerializedName("they_blocked_me") val theyBlockedMe: Boolean,
     @SerializedName("can_message") val canMessage: Boolean
+)
+
+data class BlockNotificationDto(
+    @SerializedName("id") val id: Int,
+    @SerializedName("blocker_user_id") val blockerUserId: Int,
+    @SerializedName("blocker_username") val blockerUsername: String,
+    @SerializedName("action") val action: String, // "blocked" o "unblocked"
+    @SerializedName("created_at") val createdAt: String
 )
 
 // Full Backup models
