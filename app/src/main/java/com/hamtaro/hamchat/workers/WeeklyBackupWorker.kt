@@ -202,7 +202,7 @@ class WeeklyBackupWorker(
     }
 
     override suspend fun doWork(): Result {
-        Log.d(TAG, "🔄 Iniciando backup semanal completo...")
+        Log.d(TAG, "🔄 Iniciando backup incremental...")
         
         return try {
             val prefs = applicationContext.getSharedPreferences("HamChatPrefs", Context.MODE_PRIVATE)
@@ -215,30 +215,146 @@ class WeeklyBackupWorker(
                 return Result.success()
             }
             
-            // 1. Obtener backup completo del servidor (todos los mensajes y contactos)
-            val fullBackup = fetchFullBackupFromServer(token)
+            // 1. Obtener backup del servidor (mensajes nuevos)
+            val serverBackup = fetchFullBackupFromServer(token)
             
-            if (fullBackup != null) {
-                // 2. Guardar backup en archivo local
-                saveBackupToFile(fullBackup)
+            if (serverBackup != null) {
+                // 2. Cargar backup existente y hacer merge incremental
+                val mergedBackup = mergeWithExistingBackup(serverBackup)
                 
-                // 3. Limpiar backups antiguos locales
+                // 3. Guardar backup combinado
+                saveBackupToFile(mergedBackup)
+                
+                // 4. Limpiar backups antiguos (mantener solo 3)
                 cleanOldBackups()
                 
-                // 4. Limpiar mensajes antiguos del servidor (más de 7 días)
+                // 5. Limpiar mensajes antiguos del servidor (más de 7 días)
                 cleanupServerMessages(token)
                 
-                val totalMessages = fullBackup.optInt("total_messages", 0)
-                val totalContacts = fullBackup.optInt("total_contacts", 0)
-                Log.d(TAG, "✅ Backup semanal completado: $totalMessages mensajes, $totalContacts contactos")
+                val totalMessages = mergedBackup.optInt("total_messages", 0)
+                val totalContacts = mergedBackup.optInt("total_contacts", 0)
+                Log.d(TAG, "✅ Backup incremental completado: $totalMessages mensajes, $totalContacts contactos")
             } else {
                 Log.w(TAG, "⚠️ No se pudo obtener backup del servidor")
             }
             
             Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error en backup semanal: ${e.message}")
+            Log.e(TAG, "❌ Error en backup incremental: ${e.message}")
             Result.retry()
+        }
+    }
+    
+    /**
+     * Combina el backup del servidor con el backup local existente (incremental)
+     * Los mensajes antiguos se conservan, los nuevos se agregan
+     */
+    private fun mergeWithExistingBackup(serverBackup: JSONObject): JSONObject {
+        // Buscar el backup más reciente
+        val existingBackups = listLocalBackups(applicationContext)
+        
+        if (existingBackups.isEmpty()) {
+            // No hay backup previo, usar el del servidor directamente
+            Log.d(TAG, "📦 Primer backup, guardando completo")
+            return serverBackup
+        }
+        
+        // Cargar el backup más reciente
+        val latestBackup = existingBackups.first()
+        val existingData = restoreLocalBackup(applicationContext, latestBackup.fileName)
+        
+        if (existingData == null) {
+            Log.w(TAG, "⚠️ No se pudo leer backup existente, usando servidor")
+            return serverBackup
+        }
+        
+        Log.d(TAG, "🔄 Haciendo merge incremental con backup existente")
+        
+        // Obtener mensajes existentes
+        val existingMessages = existingData.optJSONArray("messages") ?: JSONArray()
+        val serverMessages = serverBackup.optJSONArray("messages") ?: JSONArray()
+        
+        // Crear mapa de mensajes existentes por ID para evitar duplicados
+        val messageMap = mutableMapOf<Int, JSONObject>()
+        
+        // Agregar mensajes existentes al mapa
+        for (i in 0 until existingMessages.length()) {
+            val msg = existingMessages.getJSONObject(i)
+            val id = msg.optInt("id", -1)
+            if (id > 0) {
+                messageMap[id] = msg
+            }
+        }
+        
+        // Agregar/actualizar con mensajes del servidor
+        for (i in 0 until serverMessages.length()) {
+            val msg = serverMessages.getJSONObject(i)
+            val id = msg.optInt("id", -1)
+            if (id > 0) {
+                messageMap[id] = msg // Sobrescribe si existe, agrega si es nuevo
+            }
+        }
+        
+        // Obtener contactos existentes
+        val existingContacts = existingData.optJSONArray("contacts") ?: JSONArray()
+        val serverContacts = serverBackup.optJSONArray("contacts") ?: JSONArray()
+        
+        // Crear mapa de contactos por ID
+        val contactMap = mutableMapOf<Int, JSONObject>()
+        
+        for (i in 0 until existingContacts.length()) {
+            val contact = existingContacts.getJSONObject(i)
+            val id = contact.optInt("id", -1)
+            if (id > 0) {
+                contactMap[id] = contact
+            }
+        }
+        
+        for (i in 0 until serverContacts.length()) {
+            val contact = serverContacts.getJSONObject(i)
+            val id = contact.optInt("id", -1)
+            if (id > 0) {
+                contactMap[id] = contact
+            }
+        }
+        
+        // Crear backup combinado
+        val mergedMessages = JSONArray()
+        messageMap.values.sortedBy { it.optString("created_at", "") }.forEach { 
+            mergedMessages.put(it) 
+        }
+        
+        val mergedContacts = JSONArray()
+        contactMap.values.forEach { mergedContacts.put(it) }
+        
+        // Actualizar conteo de mensajes por contacto
+        contactMap.keys.forEach { contactId ->
+            val msgCount = messageMap.values.count { msg ->
+                msg.optInt("sender_id") == contactId || msg.optInt("recipient_id") == contactId
+            }
+            contactMap[contactId]?.put("message_count", msgCount)
+        }
+        
+        val previousMsgCount = existingMessages.length()
+        val newMsgCount = mergedMessages.length()
+        val addedMsgs = newMsgCount - previousMsgCount
+        
+        Log.d(TAG, "📊 Merge: $previousMsgCount existentes + $addedMsgs nuevos = $newMsgCount total")
+        
+        // Crear backup final
+        return JSONObject().apply {
+            put("version", 3) // Versión 3 = backup incremental
+            put("app_version", "1.0")
+            put("user_id", serverBackup.optInt("user_id"))
+            put("username", serverBackup.optString("username"))
+            put("phone_e164", serverBackup.optString("phone_e164"))
+            put("backup_date", serverBackup.optString("backup_date"))
+            put("total_messages", mergedMessages.length())
+            put("total_contacts", mergedContacts.length())
+            put("contacts", mergedContacts)
+            put("messages", mergedMessages)
+            put("is_incremental", true)
+            put("previous_backup", latestBackup.fileName)
         }
     }
     
