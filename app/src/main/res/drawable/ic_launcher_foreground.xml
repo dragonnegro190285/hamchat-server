@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Safe zone: 18-90 (72dp centro) para contenido principal -->
+    <!-- El contenido debe estar centrado en esta área -->
+    
+    <!-- Cara de Hamtaro (círculo crema) -->
+    <path
+        android:fillColor="#FFF5E6"
+        android:pathData="M54,18C33.01,18 16,35.01 16,56C16,76.99 33.01,94 54,94C74.99,94 92,76.99 92,56C92,35.01 74.99,18 54,18Z" />
+    
+    <!-- Orejas de Hamtaro -->
+    <path
+        android:fillColor="#FF8C42"
+        android:pathData="M24,32C18,24 6,26 6,40C6,54 14,58 22,50L24,32Z" />
+    
+    <path
+        android:fillColor="#FF8C42"
+        android:pathData="M84,32C90,24 102,26 102,40C102,54 94,58 86,50L84,32Z" />
+    
+    <!-- Interior orejas (rosa) -->
+    <path
+        android:fillColor="#FFB6C1"
+        android:pathData="M20,36C16,32 10,34 10,42C10,50 14,52 18,48L20,36Z" />
+    
+    <path
+        android:fillColor="#FFB6C1"
+        android:pathData="M88,36C92,32 98,34 98,42C98,50 94,52 90,48L88,36Z" />
+    
+    <!-- Ojos -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M38,48 A6,8 0 1,1 38,47.99Z" />
+    
+    <path
+        android:fillColor="#000000"
+        android:pathData="M70,48 A6,8 0 1,1 70,47.99Z" />
+    
+    <!-- Brillo ojos -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,44 A2,2 0 1,1 36,43.99Z" />
+    
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,44 A2,2 0 1,1 68,43.99Z" />
+    
+    <!-- Nariz -->
+    <path
+        android:fillColor="#FF6B6B"
+        android:pathData="M54,58 A4,3 0 1,1 54,57.99Z" />
+    
+    <!-- Boca sonriente -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeWidth="2"
+        android:strokeColor="#000000"
+        android:pathData="M44,66 Q54,76 64,66" />
+    
+    <!-- Mejillas (cachetes rosados) -->
+    <path
+        android:fillColor="#FFB6C1"
+        android:pathData="M28,58 A8,6 0 1,1 28,57.99Z" />
+    
+    <path
+        android:fillColor="#FFB6C1"
+        android:pathData="M80,58 A8,6 0 1,1 80,57.99Z" />
+    
+    <!-- Burbuja de chat -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,72 L92,72 L92,88 L86,88 L82,94 L82,88 L68,88 Z" />
+    
+    <!-- Puntos de chat -->
+    <path
+        android:fillColor="#FF8C42"
+        android:pathData="M73,80 A2,2 0 1,1 73,79.99Z" />
+    
+    <path
+        android:fillColor="#FF8C42"
+        android:pathData="M80,80 A2,2 0 1,1 80,79.99Z" />
+    
+    <path
+        android:fillColor="#FF8C42"
+        android:pathData="M87,80 A2,2 0 1,1 87,79.99Z" />
+    
+</vector>
