@@ -1041,10 +1041,15 @@ class ChatActivity : BaseActivity() {
             options.add("🗑️ Eliminar (solo aquí)")
             actions.add { confirmDeleteSingleRemoteMessage(message) }
             
-            // Borrar para todos (solo mensajes propios)
-            if (isMyMessage && remoteUserId != null) {
-                options.add("🗑️ Borrar para todos")
-                actions.add { confirmDeleteForEveryone(message) }
+            // Borrar para todos (solo mensajes propios no entregados)
+            if (isMyMessage && remoteUserId != null && message.serverId > 0) {
+                if (!message.isDelivered) {
+                    options.add("🗑️ Borrar para todos")
+                    actions.add { confirmDeleteForEveryone(message) }
+                } else {
+                    options.add("🗑️ Borrar para todos (no disponible)")
+                    actions.add { showCannotDeleteForEveryoneDialog(message) }
+                }
             }
         }
         
@@ -2639,12 +2644,32 @@ class ChatActivity : BaseActivity() {
     // ========== Borrar para Todos ==========
     
     /**
+     * Mostrar diálogo cuando el mensaje ya fue entregado y no se puede borrar para todos
+     */
+    private fun showCannotDeleteForEveryoneDialog(message: ChatMessage) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("⚠️ Mensaje ya entregado")
+            .setMessage("""
+                Este mensaje ya fue recibido por $contactName.
+                
+                Por seguridad, no es posible eliminarlo del dispositivo del destinatario.
+                
+                ¿Deseas eliminarlo solo de tu dispositivo?
+            """.trimIndent())
+            .setPositiveButton("🗑️ Eliminar solo aquí") { _, _ ->
+                confirmDeleteSingleRemoteMessage(message)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
      * Confirmar borrado para todos
      */
     private fun confirmDeleteForEveryone(message: ChatMessage) {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("🗑️ Borrar para todos")
-            .setMessage("¿Eliminar este mensaje para ti y para ${contactName}?\n\nEsta acción no se puede deshacer.")
+            .setMessage("¿Eliminar este mensaje para ti y para ${contactName}?\n\nEl mensaje aún no ha sido recibido, por lo que se eliminará completamente.\n\nEsta acción no se puede deshacer.")
             .setPositiveButton("Borrar") { _, _ ->
                 deleteMessageForEveryone(message)
             }
