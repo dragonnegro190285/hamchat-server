@@ -204,6 +204,23 @@ def create_tables() -> None:
         """
     )
     
+    # Notificaciones de bloqueo (para mostrar en el chat)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS block_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blocked_user_id INTEGER NOT NULL,
+            blocker_user_id INTEGER NOT NULL,
+            blocker_username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            seen INTEGER DEFAULT 0,
+            FOREIGN KEY(blocked_user_id) REFERENCES users(id),
+            FOREIGN KEY(blocker_user_id) REFERENCES users(id)
+        );
+        """
+    )
+    
     # Solicitudes de restauración de contacto
     cur.execute(
         """
@@ -1376,6 +1393,20 @@ def block_contact(
         (current_user_id, req.user_id, now_iso())
     )
     
+    # Obtener nombre del usuario que bloquea
+    cur.execute("SELECT username FROM users WHERE id = ?", (current_user_id,))
+    blocker_user = cur.fetchone()
+    blocker_username = blocker_user["username"] if blocker_user else "Usuario"
+    
+    # Crear notificación para el usuario bloqueado
+    cur.execute(
+        """
+        INSERT INTO block_notifications (blocked_user_id, blocker_user_id, blocker_username, action, created_at)
+        VALUES (?, ?, ?, 'blocked', ?)
+        """,
+        (req.user_id, current_user_id, blocker_username, now_iso())
+    )
+    
     conn.commit()
     conn.close()
     
@@ -1412,6 +1443,21 @@ def unblock_contact(
     )
     
     deleted = cur.rowcount > 0
+    
+    if deleted:
+        # Obtener nombre del usuario que desbloquea
+        cur.execute("SELECT username FROM users WHERE id = ?", (current_user_id,))
+        unblocker_user = cur.fetchone()
+        unblocker_username = unblocker_user["username"] if unblocker_user else "Usuario"
+        
+        # Crear notificación para el usuario desbloqueado
+        cur.execute(
+            """
+            INSERT INTO block_notifications (blocked_user_id, blocker_user_id, blocker_username, action, created_at)
+            VALUES (?, ?, ?, 'unblocked', ?)
+            """,
+            (req.user_id, current_user_id, unblocker_username, now_iso())
+        )
     
     conn.commit()
     conn.close()
@@ -1490,6 +1536,70 @@ def check_block_status(
         "they_blocked_me": they_blocked_me,
         "can_message": not i_blocked_them and not they_blocked_me
     }
+
+
+class BlockNotificationDto(BaseModel):
+    id: int
+    blocker_user_id: int
+    blocker_username: str
+    action: str
+    created_at: str
+
+
+@app.get("/api/contacts/block-notifications")
+def get_block_notifications(
+    current_user_id: int = Depends(get_user_id_from_token)
+) -> List[BlockNotificationDto]:
+    """
+    Obtener notificaciones de bloqueo/desbloqueo para mostrar en el chat.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT id, blocker_user_id, blocker_username, action, created_at
+        FROM block_notifications
+        WHERE blocked_user_id = ? AND seen = 0
+        ORDER BY created_at DESC
+        """,
+        (current_user_id,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        BlockNotificationDto(
+            id=r["id"],
+            blocker_user_id=r["blocker_user_id"],
+            blocker_username=r["blocker_username"],
+            action=r["action"],
+            created_at=r["created_at"]
+        )
+        for r in rows
+    ]
+
+
+@app.post("/api/contacts/block-notifications/{notification_id}/seen")
+def mark_block_notification_seen(
+    notification_id: int,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Marcar una notificación de bloqueo como vista.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        "UPDATE block_notifications SET seen = 1 WHERE id = ? AND blocked_user_id = ?",
+        (notification_id, current_user_id)
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return {"success": True}
 
 
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
