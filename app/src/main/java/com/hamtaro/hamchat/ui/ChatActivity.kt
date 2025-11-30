@@ -99,6 +99,8 @@ class ChatActivity : BaseActivity() {
     private lateinit var contactName: String
     private var isPrivateChat = false
     private var remoteUserId: Int? = null
+    private var isGroupChat = false      // Si es un chat grupal
+    private var groupId: Int? = null     // ID del grupo (si es chat grupal)
 
     private val messages = mutableListOf<ChatMessage>()
     private val deletedMessageKeys = mutableSetOf<String>() // Mensajes borrados localmente
@@ -134,11 +136,20 @@ class ChatActivity : BaseActivity() {
             contactId = intent.getStringExtra("contact_id") ?: "unknown"
             contactName = intent.getStringExtra("contact_name") ?: "Contacto"
             isPrivateChat = contactId == "contact_hamtaro"
+            
+            // Detectar tipo de chat
             if (!isPrivateChat && contactId.startsWith("remote_")) {
                 remoteUserId = contactId.removePrefix("remote_").toIntOrNull()
+            } else if (!isPrivateChat && contactId.startsWith("group_")) {
+                isGroupChat = true
+                groupId = contactId.removePrefix("group_").toIntOrNull()
             }
 
-            title = if (isPrivateChat) "📝 Mis Notas" else "Chat con $contactName"
+            title = when {
+                isPrivateChat -> "📝 Mis Notas"
+                isGroupChat -> "👥 $contactName"
+                else -> "Chat con $contactName"
+            }
 
             messagesScrollView = findViewById(R.id.scroll_messages)
             messagesContainer = findViewById(R.id.layout_messages)
@@ -151,24 +162,30 @@ class ChatActivity : BaseActivity() {
             if (isPrivateChat) {
                 chatTitle.text = "📝 Mis Notas Privadas"
                 messageEditText.hint = "Escribe una nota para ti mismo..."
-                sendButton.text = "💾 Guardar"
+                sendButton.text = "💾"
                 clearPrivateButton.visibility = View.VISIBLE
                 clearPrivateButton.setOnClickListener {
                     confirmClearPrivateNotes()
                 }
+            } else if (isGroupChat) {
+                // Chat grupal
+                chatTitle.text = "👥 $contactName"
+                messageEditText.hint = "Mensaje al grupo..."
+                sendButton.text = "📤"
+                clearPrivateButton.visibility = View.GONE
             } else {
                 clearPrivateButton.visibility = View.GONE
 
                 if (remoteUserId != null) {
                     // Chat remoto entre usuarios Ham-Chat
-                    chatTitle.text = "Chat con $contactName (Ham-Chat)"
-                    messageEditText.hint = "Escribe un mensaje para $contactName (se enviará por Ham-Chat cuando haya conexión)"
-                    sendButton.text = "Enviar"
+                    chatTitle.text = "$contactName"
+                    messageEditText.hint = "Mensaje..."
+                    sendButton.text = "📤"
                 } else {
                     // Chat solo local en este dispositivo
-                    chatTitle.text = "Chat con $contactName (solo en este dispositivo)"
-                    messageEditText.hint = "Escribe un mensaje para $contactName (solo se guarda en este dispositivo)"
-                    sendButton.text = "💾 Guardar mensaje"
+                    chatTitle.text = "$contactName (local)"
+                    messageEditText.hint = "Mensaje (solo local)..."
+                    sendButton.text = "💾"
                 }
             }
 
@@ -624,9 +641,7 @@ class ChatActivity : BaseActivity() {
         
         // Nombre del remitente (solo para chats grupales, no en chats 1 a 1)
         // En chats uno a uno no es necesario mostrar quién envía
-        // Se conserva la lógica para futuros chats grupales
-        val isGroupChat = false // TODO: Implementar chats grupales
-        if (!isMyMessage && isGroupChat) {
+        if (!isMyMessage && this.isGroupChat) {
             val senderView = TextView(this).apply {
                 text = message.sender
                 textSize = 12f

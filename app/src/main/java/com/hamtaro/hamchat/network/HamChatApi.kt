@@ -6,6 +6,7 @@ import retrofit2.Call
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -94,6 +95,53 @@ data class InboxItemDto(
     val last_message_id: Int
 )
 
+// ---------- Modelos para Grupos ----------
+
+data class CreateGroupRequest(
+    val name: String,
+    val description: String? = null,
+    val member_ids: List<Int> = emptyList()
+)
+
+data class GroupDto(
+    val id: Int,
+    val name: String,
+    val description: String?,
+    val creator_id: Int,
+    val created_at: String,
+    val member_count: Int
+)
+
+data class GroupMemberDto(
+    val user_id: Int,
+    val username: String,
+    val phone_e164: String,
+    val role: String,
+    val joined_at: String
+)
+
+data class GroupMessageRequest(
+    val group_id: Int,
+    val content: String,
+    val local_id: String? = null,
+    val sent_at: String? = null
+)
+
+data class GroupMessageDto(
+    val id: Int,
+    val group_id: Int,
+    val sender_id: Int,
+    val sender_name: String,
+    val content: String,
+    val created_at: String,
+    val sent_at: String? = null,
+    val local_id: String? = null
+)
+
+data class AddGroupMemberRequest(
+    val user_id: Int
+)
+
 interface HamChatApi {
 
     @POST("register")
@@ -158,6 +206,58 @@ interface HamChatApi {
 
     @GET("health")
     fun health(): Call<HealthResponse>
+
+    // ---------- Endpoints de Grupos ----------
+
+    @POST("groups")
+    fun createGroup(
+        @Header("Authorization") authHeader: String,
+        @Body body: CreateGroupRequest
+    ): Call<GroupDto>
+
+    @GET("groups")
+    fun getMyGroups(
+        @Header("Authorization") authHeader: String
+    ): Call<List<GroupDto>>
+
+    @GET("groups/{group_id}")
+    fun getGroup(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("group_id") groupId: Int
+    ): Call<GroupDto>
+
+    @GET("groups/{group_id}/members")
+    fun getGroupMembers(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("group_id") groupId: Int
+    ): Call<List<GroupMemberDto>>
+
+    @POST("groups/{group_id}/members")
+    fun addGroupMember(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("group_id") groupId: Int,
+        @Body body: AddGroupMemberRequest
+    ): Call<Map<String, Any>>
+
+    @DELETE("groups/{group_id}/members/{user_id}")
+    fun removeGroupMember(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("group_id") groupId: Int,
+        @retrofit2.http.Path("user_id") userId: Int
+    ): Call<Map<String, Any>>
+
+    @POST("groups/messages")
+    fun sendGroupMessage(
+        @Header("Authorization") authHeader: String,
+        @Body body: GroupMessageRequest
+    ): Call<GroupMessageDto>
+
+    @GET("groups/{group_id}/messages")
+    fun getGroupMessages(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("group_id") groupId: Int,
+        @Query("since_id") sinceId: Int = 0
+    ): Call<List<GroupMessageDto>>
 }
 
 object HamChatApiClient {
