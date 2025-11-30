@@ -677,6 +677,25 @@ class MainActivity : BaseActivity() {
         backupSpinner.adapter = adapter
         container.addView(backupSpinner)
         
+        // Botón para empezar de cero
+        val startFreshButton = Button(context).apply {
+            text = "🗑️ Empezar de cero (borrar todo)"
+            setBackgroundColor(Color.parseColor("#FFCCCC"))
+            setTextColor(Color.parseColor("#CC0000"))
+            setPadding(16, 16, 16, 16)
+            setOnClickListener {
+                showDeleteAllBackupsConfirmation(backups)
+            }
+        }
+        
+        val spacer = View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 24
+            )
+        }
+        container.addView(spacer)
+        container.addView(startFreshButton)
+        
         AlertDialog.Builder(context)
             .setTitle("🐹 Restaurar Backup")
             .setView(container)
@@ -693,6 +712,99 @@ class MainActivity : BaseActivity() {
             .setNeutralButton("🔑 Recuperar cuenta") { _, _ ->
                 showRecoveryDialog()
             }
+            .show()
+    }
+    
+    private fun showDeleteAllBackupsConfirmation(backups: List<BackupInfo>) {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ ADVERTENCIA")
+            .setMessage("""
+                ¿Estás seguro de que deseas BORRAR TODOS los backups y empezar de cero?
+                
+                🚨 ESTA ACCIÓN ES IRREVERSIBLE 🚨
+                
+                • Se eliminarán ${backups.size} backup(s)
+                • Perderás TODAS tus conversaciones guardadas
+                • Tus contactos que tenían conversaciones contigo conservarán sus mensajes
+                
+                📢 RECOMENDACIÓN:
+                Es recomendable que notifiques a tus contactos que has reiniciado tu cuenta. Ellos pueden decidir si desean:
+                • Mantener el historial de conversaciones
+                • Eliminar las conversaciones antiguas
+                
+                ¿Deseas continuar?
+            """.trimIndent())
+            .setPositiveButton("Sí, borrar todo") { _, _ ->
+                showFinalDeleteConfirmation(backups)
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                // Volver a mostrar el diálogo de backups
+                checkForAvailableBackups()
+            }
+            .show()
+    }
+    
+    private fun showFinalDeleteConfirmation(backups: List<BackupInfo>) {
+        AlertDialog.Builder(this)
+            .setTitle("🗑️ CONFIRMACIÓN FINAL")
+            .setMessage("""
+                Escribe "BORRAR" para confirmar que deseas eliminar todos los backups y empezar de cero.
+                
+                Esta es tu última oportunidad de cancelar.
+            """.trimIndent())
+            .setView(EditText(this).apply {
+                hint = "Escribe BORRAR"
+                id = android.R.id.edit
+            })
+            .setPositiveButton("Confirmar") { dialog, _ ->
+                val editText = (dialog as AlertDialog).findViewById<EditText>(android.R.id.edit)
+                val confirmation = editText?.text?.toString()?.trim()?.uppercase()
+                
+                if (confirmation == "BORRAR") {
+                    deleteAllBackupsAndStartFresh(backups)
+                } else {
+                    Toast.makeText(this, "Confirmación incorrecta. Operación cancelada.", Toast.LENGTH_SHORT).show()
+                    checkForAvailableBackups()
+                }
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                checkForAvailableBackups()
+            }
+            .show()
+    }
+    
+    private fun deleteAllBackupsAndStartFresh(backups: List<BackupInfo>) {
+        var deletedCount = 0
+        
+        // Eliminar todos los backups
+        backups.forEach { backup ->
+            if (WeeklyBackupWorker.deleteLocalBackup(this, backup.fileName)) {
+                deletedCount++
+            }
+        }
+        
+        Toast.makeText(this, "✅ $deletedCount backup(s) eliminado(s)", Toast.LENGTH_SHORT).show()
+        
+        // Mostrar mensaje de recomendación final
+        AlertDialog.Builder(this)
+            .setTitle("📢 Recomendación importante")
+            .setMessage("""
+                Has eliminado todos tus backups y empezarás de cero.
+                
+                📱 IMPORTANTE:
+                Tus contactos aún tienen las conversaciones que tuvieron contigo. Te recomendamos:
+                
+                1. Notificarles que reiniciaste tu cuenta
+                2. Pedirles que decidan si desean:
+                   • Mantener el historial (para referencia)
+                   • Eliminar las conversaciones antiguas
+                
+                Esto ayudará a mantener la privacidad y evitar confusiones.
+            """.trimIndent())
+            .setPositiveButton("Entendido, continuar") { _, _ ->
+                showRegistrationDialog()
+            }
+            .setCancelable(false)
             .show()
     }
     
