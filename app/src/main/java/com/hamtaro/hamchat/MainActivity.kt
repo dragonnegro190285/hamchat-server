@@ -1118,7 +1118,7 @@ class MainActivity : BaseActivity() {
         }
 
         newChatButton.setOnClickListener {
-            showAddContactDialog()
+            showNewChatOptions()
         }
 
         addFriendRemoteButton.setOnClickListener {
@@ -2404,6 +2404,222 @@ class MainActivity : BaseActivity() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Error Ham-Chat", text)
         clipboard.setPrimaryClip(clip)
+    }
+    
+    // ========== Funciones de Grupos ==========
+    
+    /**
+     * Muestra opciones para nuevo chat o grupo
+     */
+    private fun showNewChatOptions() {
+        val options = arrayOf(
+            "👤 Nuevo contacto",
+            "👥 Crear grupo",
+            "📋 Mis grupos"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("➕ Nuevo")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showAddContactDialog()
+                    1 -> showCreateGroupDialog()
+                    2 -> showMyGroupsDialog()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Diálogo para crear un nuevo grupo
+     */
+    private fun showCreateGroupDialog() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes estar registrado para crear grupos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 40, 50, 20)
+        }
+        
+        val nameLabel = TextView(this).apply {
+            text = "Nombre del grupo:"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(0, 0, 0, 8)
+        }
+        
+        val nameInput = EditText(this).apply {
+            hint = "Ej: Familia, Trabajo, Amigos..."
+            setTextColor(Color.parseColor("#4A2C17"))
+            setHintTextColor(Color.parseColor("#6B4423"))
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(Color.parseColor("#F5E6D3"))
+        }
+        
+        val descLabel = TextView(this).apply {
+            text = "Descripción (opcional):"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(0, 16, 0, 8)
+        }
+        
+        val descInput = EditText(this).apply {
+            hint = "Descripción del grupo..."
+            setTextColor(Color.parseColor("#4A2C17"))
+            setHintTextColor(Color.parseColor("#6B4423"))
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(Color.parseColor("#F5E6D3"))
+        }
+        
+        dialogView.addView(nameLabel)
+        dialogView.addView(nameInput)
+        dialogView.addView(descLabel)
+        dialogView.addView(descInput)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("👥 Crear grupo")
+            .setView(dialogView)
+            .setPositiveButton("Crear") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val description = descInput.text.toString().trim().ifEmpty { null }
+                
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "El nombre es obligatorio", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                
+                createGroup(name, description)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Crea un nuevo grupo en el servidor
+     */
+    private fun createGroup(name: String, description: String?) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) return
+        
+        val authHeader = "Bearer $token"
+        val request = com.hamtaro.hamchat.network.CreateGroupRequest(
+            name = name,
+            description = description,
+            member_ids = emptyList()
+        )
+        
+        Toast.makeText(this, "Creando grupo...", Toast.LENGTH_SHORT).show()
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.createGroup(authHeader, request)
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.GroupDto> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.GroupDto>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.GroupDto>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val group = response.body()!!
+                        Toast.makeText(this@MainActivity, "✅ Grupo \"${group.name}\" creado", Toast.LENGTH_SHORT).show()
+                        
+                        // Abrir el chat del grupo
+                        openGroupChat(group)
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al crear grupo", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.GroupDto>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra la lista de grupos del usuario
+     */
+    private fun showMyGroupsDialog() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes estar registrado para ver grupos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val authHeader = "Bearer $token"
+        
+        // Mostrar diálogo de carga
+        val loadingDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📋 Mis grupos")
+            .setMessage("Cargando...")
+            .setCancelable(true)
+            .create()
+        loadingDialog.show()
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.getMyGroups(authHeader)
+            .enqueue(object : retrofit2.Callback<List<com.hamtaro.hamchat.network.GroupDto>> {
+                override fun onResponse(
+                    call: retrofit2.Call<List<com.hamtaro.hamchat.network.GroupDto>>,
+                    response: retrofit2.Response<List<com.hamtaro.hamchat.network.GroupDto>>
+                ) {
+                    loadingDialog.dismiss()
+                    
+                    if (response.isSuccessful && response.body() != null) {
+                        val groups = response.body()!!
+                        
+                        if (groups.isEmpty()) {
+                            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("📋 Mis grupos")
+                                .setMessage("No tienes grupos.\n\nCrea uno nuevo con el botón ➕")
+                                .setPositiveButton("Crear grupo") { _, _ -> showCreateGroupDialog() }
+                                .setNegativeButton("Cerrar", null)
+                                .show()
+                        } else {
+                            showGroupsList(groups)
+                        }
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al cargar grupos", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<List<com.hamtaro.hamchat.network.GroupDto>>, t: Throwable) {
+                    loadingDialog.dismiss()
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra la lista de grupos para seleccionar
+     */
+    private fun showGroupsList(groups: List<com.hamtaro.hamchat.network.GroupDto>) {
+        val groupNames = groups.map { "👥 ${it.name} (${it.member_count} miembros)" }.toTypedArray()
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📋 Mis grupos (${groups.size})")
+            .setItems(groupNames) { _, which ->
+                val group = groups[which]
+                openGroupChat(group)
+            }
+            .setPositiveButton("➕ Crear nuevo") { _, _ -> showCreateGroupDialog() }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    /**
+     * Abre el chat de un grupo
+     */
+    private fun openGroupChat(group: com.hamtaro.hamchat.network.GroupDto) {
+        try {
+            val intent = Intent(this, com.hamtaro.hamchat.ui.ChatActivity::class.java)
+            intent.putExtra("contact_id", "group_${group.id}")
+            intent.putExtra("contact_name", group.name)
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al abrir grupo: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
     
     /**
