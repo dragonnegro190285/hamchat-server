@@ -2035,6 +2035,103 @@ def delete_message_for_everyone(message_id: int, current_user_id: int = Depends(
     return {"success": True, "message_id": message_id}
 
 
+# ========== Indicador "Escribiendo..." ==========
+
+# Almacenamiento temporal de estados de escritura
+typing_status: dict = {}  # {user_id: {to_user_id: timestamp}}
+
+class TypingRequest(BaseModel):
+    to_user_id: int
+    is_typing: bool
+
+@app.post("/api/typing")
+def set_typing_status(req: TypingRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Indicar que el usuario está escribiendo"""
+    if req.is_typing:
+        if current_user_id not in typing_status:
+            typing_status[current_user_id] = {}
+        typing_status[current_user_id][req.to_user_id] = now_iso()
+    else:
+        if current_user_id in typing_status:
+            typing_status[current_user_id].pop(req.to_user_id, None)
+    
+    return {"status": "ok"}
+
+@app.get("/api/typing/{user_id}")
+def get_typing_status(user_id: int, current_user_id: int = Depends(get_user_id_from_token)):
+    """Verificar si un usuario está escribiendo"""
+    if user_id in typing_status and current_user_id in typing_status[user_id]:
+        # Verificar que no haya pasado más de 5 segundos
+        from datetime import datetime, timedelta
+        last_typing = typing_status[user_id][current_user_id]
+        try:
+            last_time = datetime.fromisoformat(last_typing.replace("Z", "+00:00"))
+            now = datetime.now(last_time.tzinfo) if last_time.tzinfo else datetime.now()
+            if (now - last_time) < timedelta(seconds=5):
+                return {"is_typing": True}
+        except:
+            pass
+    
+    return {"is_typing": False}
+
+
+# ========== Foto de Perfil ==========
+
+# Almacenamiento de fotos de perfil (en producción usar almacenamiento persistente)
+profile_photos: dict = {}  # {user_id: base64_data}
+
+class ProfilePhotoRequest(BaseModel):
+    photo_data: str  # Base64 encoded
+
+@app.post("/api/profile/photo")
+def set_profile_photo(req: ProfilePhotoRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Establecer foto de perfil"""
+    # Limitar tamaño (max 500KB)
+    if len(req.photo_data) > 500 * 1024:
+        raise HTTPException(status_code=413, detail="Imagen muy grande (max 500KB)")
+    
+    profile_photos[current_user_id] = req.photo_data
+    return {"status": "ok"}
+
+@app.get("/api/profile/photo/{user_id}")
+def get_profile_photo(user_id: int):
+    """Obtener foto de perfil de un usuario"""
+    if user_id in profile_photos:
+        return {"photo_data": profile_photos[user_id]}
+    return {"photo_data": None}
+
+@app.delete("/api/profile/photo")
+def delete_profile_photo(current_user_id: int = Depends(get_user_id_from_token)):
+    """Eliminar foto de perfil"""
+    profile_photos.pop(current_user_id, None)
+    return {"status": "ok"}
+
+
+# ========== QR para agregar contacto ==========
+
+@app.get("/api/profile/qr-data")
+def get_qr_data(current_user_id: int = Depends(get_user_id_from_token)):
+    """Obtener datos para generar QR de contacto"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT username, phone_e164 FROM users WHERE id = ?", (current_user_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Formato: hamchat://add?u=username&p=phone
+    qr_data = f"hamchat://add?u={row['username']}&p={row['phone_e164']}&id={current_user_id}"
+    
+    return {
+        "qr_data": qr_data,
+        "username": row["username"],
+        "phone": row["phone_e164"],
+        "user_id": current_user_id
+    }
+
+
 # ========== Sistema de Relay de Multimedia ==========
 
 # Almacenamiento temporal en memoria (en producción usar Redis o similar)
