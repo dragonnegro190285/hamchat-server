@@ -423,7 +423,48 @@ interface HamChatApi {
     fun getCleanupStats(
         @Header("Authorization") token: String
     ): Call<CleanupStatsResponse>
+    
+    // ========== Full Backup endpoint ==========
+    
+    @GET("backup/full")
+    fun getFullBackup(
+        @Header("Authorization") token: String
+    ): Call<FullBackupResponse>
 }
+
+// Full Backup models
+data class BackupContact(
+    @SerializedName("id") val id: Int,
+    @SerializedName("username") val username: String,
+    @SerializedName("phone_e164") val phoneE164: String,
+    @SerializedName("message_count") val messageCount: Int
+)
+
+data class BackupMessage(
+    @SerializedName("id") val id: Int,
+    @SerializedName("sender_id") val senderId: Int,
+    @SerializedName("recipient_id") val recipientId: Int,
+    @SerializedName("content") val content: String,
+    @SerializedName("created_at") val createdAt: String,
+    @SerializedName("sent_at") val sentAt: String?,
+    @SerializedName("local_id") val localId: String?,
+    @SerializedName("sender_name") val senderName: String,
+    @SerializedName("sender_phone") val senderPhone: String,
+    @SerializedName("recipient_name") val recipientName: String,
+    @SerializedName("recipient_phone") val recipientPhone: String,
+    @SerializedName("is_outgoing") val isOutgoing: Boolean
+)
+
+data class FullBackupResponse(
+    @SerializedName("user_id") val userId: Int,
+    @SerializedName("username") val username: String,
+    @SerializedName("phone_e164") val phoneE164: String,
+    @SerializedName("contacts") val contacts: List<BackupContact>,
+    @SerializedName("messages") val messages: List<BackupMessage>,
+    @SerializedName("total_messages") val totalMessages: Int,
+    @SerializedName("total_contacts") val totalContacts: Int,
+    @SerializedName("backup_date") val backupDate: String
+)
 
 // Cleanup models
 data class CleanupRequest(

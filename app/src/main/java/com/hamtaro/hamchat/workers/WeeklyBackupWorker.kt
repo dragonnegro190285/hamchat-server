@@ -176,7 +176,7 @@ class WeeklyBackupWorker(
     }
 
     override suspend fun doWork(): Result {
-        Log.d(TAG, "🔄 Iniciando backup semanal...")
+        Log.d(TAG, "🔄 Iniciando backup semanal completo...")
         
         return try {
             val prefs = applicationContext.getSharedPreferences("HamChatPrefs", Context.MODE_PRIVATE)
@@ -189,25 +189,25 @@ class WeeklyBackupWorker(
                 return Result.success()
             }
             
-            // 1. Obtener mensajes del servidor
-            val messages = fetchMessagesFromServer(token)
+            // 1. Obtener backup completo del servidor (todos los mensajes y contactos)
+            val fullBackup = fetchFullBackupFromServer(token)
             
-            // 2. Obtener contactos del servidor
-            val contacts = fetchContactsFromServer(token)
-            
-            // 3. Crear backup local
-            val backupData = createLocalBackup(messages, contacts)
-            
-            // 4. Guardar backup en archivo local
-            saveBackupToFile(backupData)
-            
-            // 5. Limpiar backups antiguos locales
-            cleanOldBackups()
-            
-            // 6. Limpiar mensajes antiguos del servidor (más de 7 días)
-            cleanupServerMessages(token)
-            
-            Log.d(TAG, "✅ Backup semanal completado: ${messages.length()} mensajes, ${contacts.length()} contactos")
+            if (fullBackup != null) {
+                // 2. Guardar backup en archivo local
+                saveBackupToFile(fullBackup)
+                
+                // 3. Limpiar backups antiguos locales
+                cleanOldBackups()
+                
+                // 4. Limpiar mensajes antiguos del servidor (más de 7 días)
+                cleanupServerMessages(token)
+                
+                val totalMessages = fullBackup.optInt("total_messages", 0)
+                val totalContacts = fullBackup.optInt("total_contacts", 0)
+                Log.d(TAG, "✅ Backup semanal completado: $totalMessages mensajes, $totalContacts contactos")
+            } else {
+                Log.w(TAG, "⚠️ No se pudo obtener backup del servidor")
+            }
             
             Result.success()
         } catch (e: Exception) {
@@ -216,57 +216,65 @@ class WeeklyBackupWorker(
         }
     }
     
-    private suspend fun fetchMessagesFromServer(token: String): JSONArray {
+    /**
+     * Obtener backup completo del servidor con TODOS los mensajes y contactos
+     */
+    private fun fetchFullBackupFromServer(token: String): JSONObject? {
         return try {
-            val response = HamChatApiClient.api.getInbox("Bearer $token").execute()
-            if (response.isSuccessful) {
-                val messages = response.body() ?: emptyList()
-                JSONArray().apply {
-                    messages.forEach { msg ->
-                        put(JSONObject().apply {
-                            put("with_user_id", msg.with_user_id)
-                            put("username", msg.username)
-                            put("phone_e164", msg.phone_e164)
-                            put("last_message", msg.last_message)
-                            put("last_message_at", msg.last_message_at)
-                            put("last_message_id", msg.last_message_id)
-                        })
-                    }
-                }
-            } else {
-                JSONArray()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error obteniendo mensajes: ${e.message}")
-            JSONArray()
-        }
-    }
-    
-    private suspend fun fetchContactsFromServer(token: String): JSONArray {
-        // Los contactos se obtienen del inbox (usuarios con los que hay conversación)
-        return try {
-            val response = HamChatApiClient.api.getInbox("Bearer $token").execute()
-            if (response.isSuccessful) {
-                val inbox = response.body() ?: emptyList()
-                val uniqueContacts = mutableSetOf<Int>()
-                JSONArray().apply {
-                    inbox.forEach { item ->
-                        if (!uniqueContacts.contains(item.with_user_id)) {
-                            uniqueContacts.add(item.with_user_id)
+            val response = HamChatApiClient.api.getFullBackup("Bearer $token").execute()
+            if (response.isSuccessful && response.body() != null) {
+                val backup = response.body()!!
+                
+                // Convertir a JSONObject para guardar
+                JSONObject().apply {
+                    put("version", 2) // Versión 2 = backup completo
+                    put("app_version", "1.0")
+                    put("user_id", backup.userId)
+                    put("username", backup.username)
+                    put("phone_e164", backup.phoneE164)
+                    put("backup_date", backup.backupDate)
+                    put("total_messages", backup.totalMessages)
+                    put("total_contacts", backup.totalContacts)
+                    
+                    // Contactos con nombre, teléfono y cantidad de mensajes
+                    put("contacts", JSONArray().apply {
+                        backup.contacts.forEach { contact ->
                             put(JSONObject().apply {
-                                put("id", item.with_user_id)
-                                put("username", item.username)
-                                put("phone_e164", item.phone_e164)
+                                put("id", contact.id)
+                                put("username", contact.username)
+                                put("phone_e164", contact.phoneE164)
+                                put("message_count", contact.messageCount)
                             })
                         }
-                    }
+                    })
+                    
+                    // TODOS los mensajes completos
+                    put("messages", JSONArray().apply {
+                        backup.messages.forEach { msg ->
+                            put(JSONObject().apply {
+                                put("id", msg.id)
+                                put("sender_id", msg.senderId)
+                                put("recipient_id", msg.recipientId)
+                                put("content", msg.content)
+                                put("created_at", msg.createdAt)
+                                put("sent_at", msg.sentAt ?: "")
+                                put("local_id", msg.localId ?: "")
+                                put("sender_name", msg.senderName)
+                                put("sender_phone", msg.senderPhone)
+                                put("recipient_name", msg.recipientName)
+                                put("recipient_phone", msg.recipientPhone)
+                                put("is_outgoing", msg.isOutgoing)
+                            })
+                        }
+                    })
                 }
             } else {
-                JSONArray()
+                Log.e(TAG, "Error obteniendo backup: ${response.code()} - ${response.message()}")
+                null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error obteniendo contactos: ${e.message}")
-            JSONArray()
+            Log.e(TAG, "Error obteniendo backup completo: ${e.message}")
+            null
         }
     }
     
