@@ -57,9 +57,10 @@ data class ChatMessage(
     val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
     val isForwarded: Boolean = false,   // Si es un mensaje reenviado
     val isStarred: Boolean = false,     // Si está marcado como favorito/importante
-    val messageType: String = "text",   // "text" o "voice"
+    val messageType: String = "text",   // "text", "voice" o "image"
     val audioData: String? = null,      // Base64 encoded audio
-    val audioDuration: Int = 0          // Duración en segundos
+    val audioDuration: Int = 0,         // Duración en segundos
+    val imageData: String? = null       // Base64 encoded image
 ) {
     /**
      * Obtiene el estado actual del mensaje para mostrar indicador visual
@@ -132,6 +133,12 @@ class ChatActivity : BaseActivity() {
     private var currentAudioFile: java.io.File? = null
     private var voiceButton: Button? = null
     private var recordingIndicator: TextView? = null
+    
+    // Sistema de fotos
+    private var photoButton: Button? = null
+    private var currentPhotoUri: android.net.Uri? = null
+    private val REQUEST_CAMERA = 101
+    private val REQUEST_GALLERY = 102
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -175,9 +182,13 @@ class ChatActivity : BaseActivity() {
             clearPrivateButton = findViewById(R.id.btn_clear_private)
             voiceButton = findViewById(R.id.btn_voice)
             recordingIndicator = findViewById(R.id.tv_recording_indicator)
+            photoButton = findViewById(R.id.btn_photo)
             
             // Configurar botón de voz (mantener presionado para grabar)
             setupVoiceButton()
+            
+            // Configurar botón de foto
+            setupPhotoButton()
 
             // Configure UI based on chat type
             if (isPrivateChat) {
@@ -714,44 +725,75 @@ class ChatActivity : BaseActivity() {
             bubbleLayout.addView(senderView)
         }
 
-        // Contenido del mensaje (texto o voz)
-        if (message.messageType == "voice" && !message.audioData.isNullOrEmpty()) {
-            // Mensaje de voz - mostrar botón de reproducir
-            val voiceContainer = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-            
-            val playButton = Button(this).apply {
-                text = "▶️"
-                textSize = 18f
-                setPadding(8, 4, 8, 4)
-                setOnClickListener {
-                    text = "⏸️"
-                    playVoiceMessage(message.audioData)
-                    postDelayed({ text = "▶️" }, (message.audioDuration * 1000 + 500).toLong())
+        // Contenido del mensaje (texto, voz o imagen)
+        when {
+            message.messageType == "image" && !message.imageData.isNullOrEmpty() -> {
+                // Mensaje de imagen
+                try {
+                    val imageBytes = android.util.Base64.decode(message.imageData, android.util.Base64.NO_WRAP)
+                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                    
+                    val imageView = android.widget.ImageView(this).apply {
+                        setImageBitmap(bitmap)
+                        adjustViewBounds = true
+                        maxWidth = (resources.displayMetrics.widthPixels * 0.6).toInt()
+                        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                        setPadding(0, 4, 0, 4)
+                        
+                        // Click para ver imagen completa
+                        setOnClickListener {
+                            showFullImage(message.imageData)
+                        }
+                    }
+                    bubbleLayout.addView(imageView)
+                } catch (e: Exception) {
+                    val errorView = TextView(this).apply {
+                        text = "📷 [Error al cargar imagen]"
+                        textSize = 14f
+                        setTextColor(0xFF888888.toInt())
+                    }
+                    bubbleLayout.addView(errorView)
                 }
             }
-            
-            val durationText = TextView(this).apply {
-                text = "🎤 ${message.audioDuration}s"
-                textSize = 14f
-                setTextColor(0xFF1A1A1A.toInt())
-                setPadding(8, 0, 0, 0)
+            message.messageType == "voice" && !message.audioData.isNullOrEmpty() -> {
+                // Mensaje de voz
+                val voiceContainer = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                
+                val playButton = Button(this).apply {
+                    text = "▶️"
+                    textSize = 18f
+                    setPadding(8, 4, 8, 4)
+                    setOnClickListener {
+                        text = "⏸️"
+                        playVoiceMessage(message.audioData)
+                        postDelayed({ text = "▶️" }, (message.audioDuration * 1000 + 500).toLong())
+                    }
+                }
+                
+                val durationText = TextView(this).apply {
+                    text = "🎤 ${message.audioDuration}s"
+                    textSize = 14f
+                    setTextColor(0xFF1A1A1A.toInt())
+                    setPadding(8, 0, 0, 0)
+                }
+                
+                voiceContainer.addView(playButton)
+                voiceContainer.addView(durationText)
+                bubbleLayout.addView(voiceContainer)
             }
-            
-            voiceContainer.addView(playButton)
-            voiceContainer.addView(durationText)
-            bubbleLayout.addView(voiceContainer)
-        } else {
-            // Mensaje de texto normal
-            val contentView = TextView(this).apply {
-                text = message.content
-                textSize = 15f
-                setTextColor(0xFF1A1A1A.toInt())
-                setTextIsSelectable(true)
+            else -> {
+                // Mensaje de texto normal
+                val contentView = TextView(this).apply {
+                    text = message.content
+                    textSize = 15f
+                    setTextColor(0xFF1A1A1A.toInt())
+                    setTextIsSelectable(true)
+                }
+                bubbleLayout.addView(contentView)
             }
-            bubbleLayout.addView(contentView)
         }
         
         // Fila inferior: hora + estado + estrella
@@ -1766,6 +1808,179 @@ class ChatActivity : BaseActivity() {
             }
         } catch (e: Exception) {
             Toast.makeText(this, "Error al reproducir", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // ========== Sistema de Fotos ==========
+    
+    private fun setupPhotoButton() {
+        photoButton?.setOnClickListener {
+            showPhotoOptions()
+        }
+    }
+    
+    private fun showPhotoOptions() {
+        val options = arrayOf("📷 Tomar foto", "🖼️ Elegir de galería")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Enviar imagen")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openCamera()
+                    1 -> openGallery()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun openCamera() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.CAMERA), REQUEST_CAMERA)
+                return
+            }
+        }
+        
+        try {
+            val photoFile = java.io.File(cacheDir, "photo_${System.currentTimeMillis()}.jpg")
+            currentPhotoUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                photoFile
+            )
+            
+            val intent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, currentPhotoUri)
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQUEST_CAMERA)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al abrir cámara", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun openGallery() {
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_PICK)
+            intent.type = "image/*"
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQUEST_GALLERY)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al abrir galería", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        if (resultCode != android.app.Activity.RESULT_OK) return
+        
+        when (requestCode) {
+            REQUEST_CAMERA -> {
+                currentPhotoUri?.let { uri ->
+                    processAndSendImage(uri)
+                }
+            }
+            REQUEST_GALLERY -> {
+                data?.data?.let { uri ->
+                    processAndSendImage(uri)
+                }
+            }
+        }
+    }
+    
+    private fun processAndSendImage(uri: android.net.Uri) {
+        try {
+            // Cargar y comprimir imagen
+            val inputStream = contentResolver.openInputStream(uri)
+            val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+            
+            if (originalBitmap == null) {
+                Toast.makeText(this, "Error al cargar imagen", Toast.LENGTH_SHORT).show()
+                return
+            }
+            
+            // Redimensionar si es muy grande (max 800px)
+            val maxSize = 800
+            val scale = minOf(maxSize.toFloat() / originalBitmap.width, maxSize.toFloat() / originalBitmap.height, 1f)
+            val newWidth = (originalBitmap.width * scale).toInt()
+            val newHeight = (originalBitmap.height * scale).toInt()
+            
+            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true)
+            
+            // Comprimir a JPEG
+            val outputStream = java.io.ByteArrayOutputStream()
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, outputStream)
+            val imageBytes = outputStream.toByteArray()
+            
+            // Convertir a Base64
+            val imageBase64 = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+            
+            // Enviar mensaje de imagen
+            sendImageMessage(imageBase64)
+            
+            // Limpiar
+            if (scaledBitmap != originalBitmap) scaledBitmap.recycle()
+            originalBitmap.recycle()
+            
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al procesar imagen", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun sendImageMessage(imageBase64: String) {
+        val localId = java.util.UUID.randomUUID().toString()
+        val imageMessage = ChatMessage(
+            sender = "Yo",
+            content = "📷 Imagen",
+            timestamp = System.currentTimeMillis(),
+            localId = localId,
+            messageType = "image",
+            imageData = imageBase64
+        )
+        
+        messages.add(imageMessage)
+        saveMessages()
+        renderMessages(forceRender = true)
+        
+        if (remoteUserId != null) {
+            val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+            val request = com.hamtaro.hamchat.network.MessageRequest(
+                recipient_id = remoteUserId!!,
+                content = imageMessage.content,
+                local_id = localId,
+                message_type = "image",
+                image_data = imageBase64
+            )
+            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
+                .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
+                    override fun onResponse(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, response: retrofit2.Response<com.hamtaro.hamchat.network.MessageDto>) {}
+                    override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, t: Throwable) {}
+                })
+        }
+        
+        Toast.makeText(this, "📷 Imagen enviada", Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun showFullImage(imageData: String) {
+        try {
+            val imageBytes = android.util.Base64.decode(imageData, android.util.Base64.NO_WRAP)
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            
+            val imageView = android.widget.ImageView(this).apply {
+                setImageBitmap(bitmap)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                setBackgroundColor(android.graphics.Color.BLACK)
+            }
+            
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setView(imageView)
+                .setPositiveButton("Cerrar", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al mostrar imagen", Toast.LENGTH_SHORT).show()
         }
     }
 }

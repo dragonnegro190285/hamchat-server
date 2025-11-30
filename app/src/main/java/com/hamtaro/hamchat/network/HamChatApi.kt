@@ -46,9 +46,10 @@ data class MessageRequest(
     val content: String,
     val local_id: String? = null,    // ID local para evitar duplicados
     val sent_at: String? = null,     // Timestamp de envío del cliente
-    val message_type: String = "text",  // "text" o "voice"
+    val message_type: String = "text",  // "text", "voice" o "image"
     val audio_data: String? = null,     // Base64 encoded audio
-    val audio_duration: Int = 0         // Duración en segundos
+    val audio_duration: Int = 0,        // Duración en segundos
+    val image_data: String? = null      // Base64 encoded image
 )
 
 data class MessageDto(
@@ -63,7 +64,8 @@ data class MessageDto(
     val local_id: String? = null,
     val message_type: String = "text",
     val audio_data: String? = null,
-    val audio_duration: Int = 0
+    val audio_duration: Int = 0,
+    val image_data: String? = null
 )
 
 data class MarkDeliveredRequest(

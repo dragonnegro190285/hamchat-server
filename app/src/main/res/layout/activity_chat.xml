@@ -94,15 +94,25 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+        <!-- Botón de foto (cámara/galería) -->
+        <Button
+            android:id="@+id/btn_photo"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:text="📷"
+            android:textSize="18sp"
+            android:padding="0dp"
+            android:layout_marginEnd="2dp" />
+
         <!-- Botón de voz (mantener presionado para grabar) -->
         <Button
             android:id="@+id/btn_voice"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:text="🎤"
-            android:textSize="20sp"
+            android:textSize="18sp"
             android:padding="0dp"
-            android:layout_marginEnd="4dp" />
+            android:layout_marginEnd="2dp" />
 
         <EditText
             android:id="@+id/et_message"
