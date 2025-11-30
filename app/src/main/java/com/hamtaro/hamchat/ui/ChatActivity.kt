@@ -622,8 +622,11 @@ class ChatActivity : BaseActivity() {
             bubbleLayout.addView(spacer)
         }
         
-        // Nombre del remitente (solo para mensajes recibidos)
-        if (!isMyMessage) {
+        // Nombre del remitente (solo para chats grupales, no en chats 1 a 1)
+        // En chats uno a uno no es necesario mostrar quién envía
+        // Se conserva la lógica para futuros chats grupales
+        val isGroupChat = false // TODO: Implementar chats grupales
+        if (!isMyMessage && isGroupChat) {
             val senderView = TextView(this).apply {
                 text = message.sender
                 textSize = 12f
