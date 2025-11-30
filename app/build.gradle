@@ -15,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId "com.hamtaro.hamchat"
-        minSdk 28  // Android 10 - Optimizado para tu dispositivo
+        minSdk 29  // Android 10 (Q) - Requerido para Keitai 4
         targetSdk 34  // Android 14
         versionCode 1
         versionName "1.0"
@@ -39,11 +39,11 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            minifyEnabled false
+            shrinkResources false
+            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             
-            // Optimize APK size
+            // Sin ofuscación para compatibilidad con Xiaomi/MIUI
             debuggable false
             jniDebuggable false
             pseudoLocalesEnabled false
@@ -116,8 +116,8 @@ dependencies {
     
     implementation 'androidx.multidex:multidex:2.0.1'
     
-    // 🔐 Security dependencies (incluye MasterKey)
-    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    // 🔐 Security - DESACTIVADO para compatibilidad con Xiaomi/MIUI
+    // implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     
     // 🎵 Multimedia dependencies
     implementation 'androidx.media:media:1.4.3'
@@ -142,6 +142,9 @@ dependencies {
     
     // 🖥️ Embedded HTTP Server - NanoHTTPD
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    
+    // 📱 QR Code - ZXing (generar)
+    implementation 'com.google.zxing:core:3.5.1'
     
     // Testing básico
     testImplementation 'junit:junit:4.13.2'

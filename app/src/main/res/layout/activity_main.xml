@@ -158,6 +158,14 @@
             android:paddingBottom="16dp" />
 
         <Button
+            android:id="@+id/btn_my_qr_code"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📱 Mi código QR"
+            android:layout_gravity="center_horizontal"
+            android:paddingTop="8dp" />
+
+        <Button
             android:id="@+id/btn_help"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

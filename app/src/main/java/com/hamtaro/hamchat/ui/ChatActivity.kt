@@ -248,6 +248,9 @@ class ChatActivity : BaseActivity() {
             
             // Configurar botón de adjuntar (+)
             setupAttachButton()
+            
+            // Verificar PIN si está protegido
+            verifyPinOnStart()
 
             // Configure UI based on chat type
             if (isPrivateChat) {
@@ -468,6 +471,9 @@ class ChatActivity : BaseActivity() {
                 val isSentToServer = obj.optBoolean("isSentToServer", serverId > 0)
                 val messageType = obj.optString("messageType", "text")
                 val isSystemMessage = obj.optBoolean("isSystemMessage", false)
+                val imageData = obj.optString("imageData", null)
+                val audioData = obj.optString("audioData", null)
+                val audioDuration = obj.optInt("audioDuration", 0)
                 
                 messages.add(ChatMessage(
                     sender = sender,
@@ -477,7 +483,10 @@ class ChatActivity : BaseActivity() {
                     localId = localId,
                     isSentToServer = isSentToServer,
                     messageType = messageType,
-                    isSystemMessage = isSystemMessage
+                    isSystemMessage = isSystemMessage,
+                    imageData = if (imageData.isNullOrEmpty()) null else imageData,
+                    audioData = if (audioData.isNullOrEmpty()) null else audioData,
+                    audioDuration = audioDuration
                 ))
             }
         } catch (e: Exception) {
@@ -539,7 +548,11 @@ class ChatActivity : BaseActivity() {
                         isSentToServer = true,
                         isDelivered = m.is_delivered,
                         sentAt = System.currentTimeMillis(),
-                        receivedAt = if (m.received_at != null) System.currentTimeMillis() else null
+                        receivedAt = if (m.received_at != null) System.currentTimeMillis() else null,
+                        messageType = m.message_type,
+                        imageData = m.image_data,
+                        audioData = m.audio_data,
+                        audioDuration = m.audio_duration
                     ))
                 }
                 
@@ -644,6 +657,10 @@ class ChatActivity : BaseActivity() {
             obj.put("isSentToServer", m.isSentToServer)
             obj.put("messageType", m.messageType)
             obj.put("isSystemMessage", m.isSystemMessage)
+            // Guardar datos multimedia
+            if (!m.imageData.isNullOrEmpty()) obj.put("imageData", m.imageData)
+            if (!m.audioData.isNullOrEmpty()) obj.put("audioData", m.audioData)
+            if (m.audioDuration > 0) obj.put("audioDuration", m.audioDuration)
             array.put(obj)
         }
         prefs.edit().putString(key, array.toString()).apply()
@@ -874,6 +891,10 @@ class ChatActivity : BaseActivity() {
                 
                 voiceContainer.addView(durationText)
                 bubbleLayout.addView(voiceContainer)
+            }
+            message.content.startsWith("[LOCATION:") -> {
+                // Mensaje de ubicación - mostrar mapa
+                renderLocationMessage(message.content, bubbleLayout)
             }
             else -> {
                 // Mensaje de texto normal
@@ -1898,7 +1919,7 @@ class ChatActivity : BaseActivity() {
                 setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
                 setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(64000)
+                setAudioEncodingBitRate(48000)
                 setAudioSamplingRate(44100)
                 setOutputFile(currentAudioFile?.absolutePath)
                 prepare()
@@ -1970,13 +1991,13 @@ class ChatActivity : BaseActivity() {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
             val authHeader = "Bearer $token"
             
-            // 1. Enviar notificación del mensaje
+            // 1. Enviar mensaje de voz al servidor
             val request = com.hamtaro.hamchat.network.MessageRequest(
                 recipient_id = remoteUserId!!,
                 content = voiceMessage.content,
                 local_id = localId,
                 message_type = "voice",
-                audio_data = null,
+                audio_data = audioBase64,  // Enviar audio en Base64
                 audio_duration = duration
             )
             com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage(authHeader, request)
@@ -2151,13 +2172,13 @@ class ChatActivity : BaseActivity() {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
             val authHeader = "Bearer $token"
             
-            // 1. Enviar notificación del mensaje
+            // 1. Enviar mensaje con imagen al servidor
             val request = com.hamtaro.hamchat.network.MessageRequest(
                 recipient_id = remoteUserId!!,
                 content = imageMessage.content,
                 local_id = localId,
                 message_type = "image",
-                image_data = null
+                image_data = imageBase64  // Enviar imagen en Base64
             )
             com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage(authHeader, request)
                 .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
@@ -2346,28 +2367,152 @@ class ChatActivity : BaseActivity() {
     // ========== Búsqueda en Chat ==========
     
     /**
-     * Mostrar barra de búsqueda
+     * Mostrar ventana flotante de búsqueda con lista de resultados
      */
     fun showSearchBar() {
-        val searchContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(16, 8, 16, 8)
-            setBackgroundColor(0xFFF5F5F5.toInt())
-        }
+        var currentDialog: androidx.appcompat.app.AlertDialog? = null
         
         val searchInput = EditText(this).apply {
-            hint = "🔍 Buscar en chat..."
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            hint = "Escribe para buscar..."
             setSingleLine(true)
+            setPadding(32, 24, 32, 24)
         }
         
-        val closeButton = Button(this).apply {
-            text = "✕"
-            setOnClickListener {
-                isSearchMode = false
-                searchQuery = ""
-                (searchContainer.parent as? LinearLayout)?.removeView(searchContainer)
-                renderMessages(forceRender = true)
+        val resultsText = TextView(this).apply {
+            text = "Escribe para buscar en ${messages.size} mensajes"
+            setPadding(32, 8, 32, 8)
+            setTextColor(0xFF666666.toInt())
+        }
+        
+        // Lista de resultados
+        val resultsList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 8, 16, 8)
+        }
+        
+        val resultsScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400 // Altura máxima en dp
+            )
+            addView(resultsList)
+        }
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(searchInput)
+            addView(resultsText)
+            addView(resultsScroll)
+        }
+        
+        // Función para actualizar lista de resultados
+        fun updateResultsList(query: String) {
+            resultsList.removeAllViews()
+            
+            if (query.isEmpty()) {
+                resultsText.text = "Escribe para buscar en ${messages.size} mensajes"
+                return
+            }
+            
+            val filtered = messages.mapIndexedNotNull { index, msg ->
+                if (msg.content.contains(query, ignoreCase = true)) {
+                    Pair(index, msg)
+                } else null
+            }
+            
+            resultsText.text = "Encontrados: ${filtered.size} de ${messages.size} mensajes"
+            
+            if (filtered.isEmpty()) {
+                val noResults = TextView(this).apply {
+                    text = "No se encontraron mensajes"
+                    setPadding(16, 32, 16, 32)
+                    setTextColor(0xFF999999.toInt())
+                    gravity = android.view.Gravity.CENTER
+                }
+                resultsList.addView(noResults)
+                return
+            }
+            
+            filtered.forEach { (index, msg) ->
+                val itemView = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(16, 12, 16, 12)
+                    setBackgroundResource(android.R.drawable.list_selector_background)
+                    isClickable = true
+                    isFocusable = true
+                    
+                    setOnClickListener {
+                        currentDialog?.dismiss()
+                        scrollToMessage(index)
+                    }
+                }
+                
+                // Remitente y hora
+                val isFromMe = msg.sender == "me"
+                val timeStr = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(msg.timestamp))
+                val header = TextView(this).apply {
+                    text = "${if (isFromMe) "Tú" else contactName} • $timeStr"
+                    setTextColor(0xFF666666.toInt())
+                    textSize = 12f
+                }
+                
+                // Contenido con texto resaltado
+                val content = TextView(this).apply {
+                    val preview = if (msg.content.length > 100) {
+                        msg.content.take(100) + "..."
+                    } else msg.content
+                    
+                    // Resaltar coincidencias
+                    val spannable = android.text.SpannableString(preview)
+                    val lowerPreview = preview.lowercase()
+                    val lowerQuery = query.lowercase()
+                    var startIndex = 0
+                    while (true) {
+                        val idx = lowerPreview.indexOf(lowerQuery, startIndex)
+                        if (idx == -1) break
+                        spannable.setSpan(
+                            android.text.style.BackgroundColorSpan(0xFFFFEB3B.toInt()),
+                            idx,
+                            idx + query.length,
+                            android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                        spannable.setSpan(
+                            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                            idx,
+                            idx + query.length,
+                            android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                        startIndex = idx + query.length
+                    }
+                    
+                    text = spannable
+                    setTextColor(0xFF333333.toInt())
+                    textSize = 14f
+                    maxLines = 2
+                }
+                
+                // Indicador de posición
+                val position = TextView(this).apply {
+                    text = "Mensaje #${index + 1} →"
+                    setTextColor(0xFF2196F3.toInt())
+                    textSize = 11f
+                }
+                
+                itemView.addView(header)
+                itemView.addView(content)
+                itemView.addView(position)
+                
+                resultsList.addView(itemView)
+                
+                // Separador
+                val divider = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        1
+                    )
+                    setBackgroundColor(0xFFE0E0E0.toInt())
+                }
+                resultsList.addView(divider)
             }
         }
         
@@ -2375,20 +2520,54 @@ class ChatActivity : BaseActivity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                searchQuery = s?.toString() ?: ""
-                isSearchMode = searchQuery.isNotEmpty()
-                filterAndRenderMessages()
+                updateResultsList(s?.toString() ?: "")
             }
         })
         
-        searchContainer.addView(searchInput)
-        searchContainer.addView(closeButton)
+        currentDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🔍 Buscar en chat")
+            .setView(container)
+            .setNegativeButton("Cerrar", null)
+            .setCancelable(true)
+            .create()
         
-        // Insertar arriba del scroll
-        val parent = messagesScrollView.parent as? LinearLayout
-        parent?.addView(searchContainer, 0)
+        currentDialog.show()
         
+        // Mostrar teclado automáticamente
         searchInput.requestFocus()
+        currentDialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+    }
+    
+    /**
+     * Navegar a un mensaje específico por índice
+     */
+    private fun scrollToMessage(messageIndex: Int) {
+        // Primero asegurar que todos los mensajes están renderizados
+        isSearchMode = false
+        searchQuery = ""
+        renderMessages(forceRender = true)
+        
+        // Esperar a que se renderice y luego hacer scroll
+        messagesScrollView.post {
+            val childCount = messagesContainer.childCount
+            if (messageIndex < childCount) {
+                val targetView = messagesContainer.getChildAt(messageIndex)
+                
+                // Scroll al mensaje
+                messagesScrollView.smoothScrollTo(0, targetView.top - 50)
+                
+                // Resaltar el mensaje temporalmente
+                val originalBg = targetView.background
+                targetView.setBackgroundColor(0xFFFFEB3B.toInt())
+                
+                // Quitar resaltado después de 2 segundos
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    targetView.background = originalBg
+                }, 2000)
+                
+                Toast.makeText(this, "📍 Mensaje #${messageIndex + 1}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     
     /**
@@ -2966,47 +3145,346 @@ class ChatActivity : BaseActivity() {
             .show()
     }
     
+    /**
+     * Verificar PIN al iniciar el chat
+     */
+    private fun verifyPinOnStart() {
+        val pin = getChatPin()
+        if (pin != null) {
+            // Ocultar contenido hasta verificar PIN
+            messagesContainer.visibility = View.GONE
+            messageEditText.isEnabled = false
+            sendButton.isEnabled = false
+            
+            val input = android.widget.EditText(this).apply {
+                hint = "Ingresa el PIN de 4 dígitos"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+                setPadding(48, 32, 48, 32)
+            }
+            
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("🔐 Chat protegido")
+                .setMessage("Este chat está protegido con PIN")
+                .setView(input)
+                .setPositiveButton("Desbloquear") { _, _ ->
+                    if (input.text.toString() == pin) {
+                        // Mostrar contenido
+                        messagesContainer.visibility = View.VISIBLE
+                        messageEditText.isEnabled = true
+                        sendButton.isEnabled = true
+                        Toast.makeText(this, "✅ Chat desbloqueado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "❌ PIN incorrecto", Toast.LENGTH_SHORT).show()
+                        finish()
+                    }
+                }
+                .setNegativeButton("Cancelar") { _, _ ->
+                    finish()
+                }
+                .setCancelable(false)
+                .show()
+        }
+    }
+    
     // ========== Compartir Ubicación ==========
     
     /**
      * Compartir ubicación actual
      */
     fun shareLocation() {
-        if (androidx.core.app.ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                this,
-                arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
-                200
-            )
+        // Verificar permisos
+        val fineLocationGranted = androidx.core.app.ActivityCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        
+        val coarseLocationGranted = androidx.core.app.ActivityCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        
+        if (!fineLocationGranted && !coarseLocationGranted) {
+            // Mostrar diálogo explicativo antes de pedir permiso
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("📍 Permiso de ubicación")
+                .setMessage("Para compartir tu ubicación, necesitamos acceso a tu GPS.\n\n¿Deseas permitir el acceso?")
+                .setPositiveButton("Permitir") { _, _ ->
+                    androidx.core.app.ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        ),
+                        200
+                    )
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
             return
         }
         
+        // Verificar si la ubicación está activada
         val locationManager = getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        val gpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+        val networkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        
+        if (!gpsEnabled && !networkEnabled) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("📍 Ubicación desactivada")
+                .setMessage("Activa la ubicación en tu dispositivo para compartir tu posición.")
+                .setPositiveButton("Abrir ajustes") { _, _ ->
+                    startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+            return
+        }
+        
+        // Mostrar progreso
+        val progressDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📍 Obteniendo ubicación")
+            .setMessage("Espera mientras obtenemos tu ubicación...")
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
         
         try {
-            val location = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            // Primero intentar última ubicación conocida
+            var location: android.location.Location? = null
+            
+            if (fineLocationGranted) {
+                location = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            }
+            if (location == null && (fineLocationGranted || coarseLocationGranted)) {
+                location = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            }
             
             if (location != null) {
-                val lat = location.latitude
-                val lon = location.longitude
-                val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
-                
-                // Enviar como mensaje
-                val locationMessage = "📍 Mi ubicación: $mapsUrl"
-                messageEditText.setText(locationMessage)
-                sendButton.performClick()
-                
-                Toast.makeText(this, "📍 Ubicación compartida", Toast.LENGTH_SHORT).show()
+                progressDialog.dismiss()
+                sendLocationMessage(location)
             } else {
-                Toast.makeText(this, "No se pudo obtener la ubicación", Toast.LENGTH_SHORT).show()
+                // Solicitar ubicación activa con timeout
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                var locationReceived = false
+                
+                val locationListener = object : android.location.LocationListener {
+                    override fun onLocationChanged(loc: android.location.Location) {
+                        if (!locationReceived) {
+                            locationReceived = true
+                            locationManager.removeUpdates(this)
+                            progressDialog.dismiss()
+                            sendLocationMessage(loc)
+                        }
+                    }
+                    override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                    override fun onProviderEnabled(provider: String) {}
+                    override fun onProviderDisabled(provider: String) {
+                        runOnUiThread {
+                            progressDialog.dismiss()
+                            Toast.makeText(this@ChatActivity, "El proveedor de ubicación fue desactivado", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                
+                // Timeout de 15 segundos
+                handler.postDelayed({
+                    if (!locationReceived) {
+                        locationReceived = true
+                        locationManager.removeUpdates(locationListener)
+                        progressDialog.dismiss()
+                        Toast.makeText(this, "No se pudo obtener la ubicación. Intenta de nuevo.", Toast.LENGTH_LONG).show()
+                    }
+                }, 15000)
+                
+                // Intentar con GPS primero, luego con red
+                if (gpsEnabled && fineLocationGranted) {
+                    locationManager.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, locationListener, android.os.Looper.getMainLooper())
+                } else if (networkEnabled) {
+                    locationManager.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, locationListener, android.os.Looper.getMainLooper())
+                }
+            }
+        } catch (e: SecurityException) {
+            progressDialog.dismiss()
+            Toast.makeText(this, "Error de permisos: ${e.message}", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            progressDialog.dismiss()
+            Toast.makeText(this, "Error al obtener ubicación: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun sendLocationMessage(location: android.location.Location) {
+        val lat = location.latitude
+        val lon = location.longitude
+        val accuracy = location.accuracy.toInt()
+        
+        // Formato especial para ubicación: [LOCATION:lat,lon,accuracy]
+        val locationMessage = "[LOCATION:$lat,$lon,$accuracy]"
+        runOnUiThread {
+            messageEditText.setText(locationMessage)
+            sendButton.performClick()
+            Toast.makeText(this, "📍 Ubicación compartida", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Renderizar mensaje de ubicación con vista previa del mapa
+     */
+    private fun renderLocationMessage(content: String, bubbleLayout: LinearLayout) {
+        try {
+            // Parsear [LOCATION:lat,lon,accuracy]
+            val locationData = content.removePrefix("[LOCATION:").removeSuffix("]")
+            val parts = locationData.split(",")
+            val lat = parts[0].toDouble()
+            val lon = parts[1].toDouble()
+            val accuracy = if (parts.size > 2) parts[2].toIntOrNull() ?: 0 else 0
+            
+            // Contenedor de ubicación
+            val locationContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 4, 0, 4)
+            }
+            
+            // Imagen del mapa estático (usando OpenStreetMap)
+            val mapWidth = 250
+            val mapHeight = 150
+            val zoom = 15
+            val mapUrl = "https://staticmap.openstreetmap.de/staticmap.php?center=$lat,$lon&zoom=$zoom&size=${mapWidth}x${mapHeight}&markers=$lat,$lon,red-pushpin"
+            
+            val mapImageView = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    (mapWidth * resources.displayMetrics.density).toInt(),
+                    (mapHeight * resources.displayMetrics.density).toInt()
+                )
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                setBackgroundColor(0xFFE8E8E8.toInt())
+                
+                // Cargar imagen del mapa
+                loadMapImage(this, mapUrl)
+                
+                // Click para abrir en Google Maps
+                setOnClickListener {
+                    openLocationInMaps(lat, lon)
+                }
+            }
+            
+            // Texto de ubicación
+            val locationText = TextView(this).apply {
+                text = "📍 Ubicación compartida"
+                textSize = 14f
+                setTextColor(0xFF1A1A1A.toInt())
+                setPadding(0, 8, 0, 0)
+            }
+            
+            // Coordenadas y precisión
+            val coordsText = TextView(this).apply {
+                text = "Lat: ${String.format("%.5f", lat)}, Lon: ${String.format("%.5f", lon)}" +
+                       if (accuracy > 0) "\nPrecisión: ~${accuracy}m" else ""
+                textSize = 11f
+                setTextColor(0xFF666666.toInt())
+            }
+            
+            // Botón para abrir en Maps
+            val openMapsButton = Button(this).apply {
+                text = "🗺️ Abrir en Maps"
+                textSize = 12f
+                setPadding(16, 8, 16, 8)
+                setOnClickListener {
+                    openLocationInMaps(lat, lon)
+                }
+            }
+            
+            locationContainer.addView(mapImageView)
+            locationContainer.addView(locationText)
+            locationContainer.addView(coordsText)
+            locationContainer.addView(openMapsButton)
+            
+            bubbleLayout.addView(locationContainer)
+            
+        } catch (e: Exception) {
+            // Fallback: mostrar como texto
+            val errorView = TextView(this).apply {
+                text = "📍 Ubicación (error al cargar mapa)"
+                textSize = 14f
+                setTextColor(0xFF888888.toInt())
+            }
+            bubbleLayout.addView(errorView)
+        }
+    }
+    
+    /**
+     * Cargar imagen del mapa de forma asíncrona
+     */
+    private fun loadMapImage(imageView: android.widget.ImageView, url: String) {
+        Thread {
+            try {
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                connection.doInput = true
+                connection.connect()
+                val input = connection.inputStream
+                val bitmap = android.graphics.BitmapFactory.decodeStream(input)
+                
+                runOnUiThread {
+                    if (bitmap != null) {
+                        imageView.setImageBitmap(bitmap)
+                    } else {
+                        // Mostrar placeholder con icono de mapa
+                        imageView.setImageResource(android.R.drawable.ic_dialog_map)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    // Mostrar placeholder
+                    imageView.setImageResource(android.R.drawable.ic_dialog_map)
+                }
+            }
+        }.start()
+    }
+    
+    /**
+     * Abrir ubicación en Google Maps
+     */
+    private fun openLocationInMaps(lat: Double, lon: Double) {
+        try {
+            // Intentar abrir en Google Maps
+            val gmmIntentUri = android.net.Uri.parse("geo:$lat,$lon?q=$lat,$lon")
+            val mapIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, gmmIntentUri)
+            mapIntent.setPackage("com.google.android.apps.maps")
+            
+            if (mapIntent.resolveActivity(packageManager) != null) {
+                startActivity(mapIntent)
+            } else {
+                // Fallback: abrir en navegador
+                val browserIntent = android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://maps.google.com/?q=$lat,$lon")
+                )
+                startActivity(browserIntent)
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Error al obtener ubicación", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "No se pudo abrir el mapa", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Manejar resultado de permisos
+     */
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        when (requestCode) {
+            200 -> { // Permiso de ubicación
+                if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    // Permiso concedido, intentar compartir ubicación de nuevo
+                    Toast.makeText(this, "✅ Permiso de ubicación concedido", Toast.LENGTH_SHORT).show()
+                    shareLocation()
+                } else {
+                    Toast.makeText(this, "❌ Se necesita permiso de ubicación para compartir tu ubicación", Toast.LENGTH_LONG).show()
+                }
+            }
+            100 -> { // Permiso de audio
+                if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "✅ Permiso de audio concedido", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
     
@@ -3249,14 +3727,16 @@ class ChatActivity : BaseActivity() {
         val customEmojis = getCustomTextEmojis()
         val allEmojis = customEmojis + defaultTextEmojis
         
-        // Crear grid de emojis
+        // Crear grid de emojis con fondo crema
         val gridLayout = android.widget.GridLayout(this).apply {
             columnCount = 5
             setPadding(16, 16, 16, 16)
+            setBackgroundColor(0xFFFFF8E1.toInt()) // Fondo crema
         }
         
         val scrollView = ScrollView(this).apply {
             addView(gridLayout)
+            setBackgroundColor(0xFFFFF8E1.toInt()) // Fondo crema
         }
         
         for (emoji in allEmojis) {
@@ -3265,11 +3745,12 @@ class ChatActivity : BaseActivity() {
             val emojiButton = TextView(this).apply {
                 text = emoji
                 textSize = 16f
+                setTextColor(0xFF1A1A1A.toInt()) // Texto oscuro/negro
                 setPadding(16, 12, 16, 12)
                 gravity = android.view.Gravity.CENTER
-                setBackgroundResource(android.R.drawable.btn_default)
+                setBackgroundColor(0xFFFFFFFF.toInt()) // Fondo blanco
                 
-                // Marcar personalizados con fondo diferente
+                // Marcar personalizados con fondo azul claro
                 if (isCustom) {
                     setBackgroundColor(0xFFE3F2FD.toInt())
                 }
@@ -3679,37 +4160,35 @@ class ChatActivity : BaseActivity() {
     }
     
     private fun generateQrBitmap(data: String, size: Int): android.graphics.Bitmap {
-        // Generar QR simple usando matriz de puntos
-        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
-        val canvas = android.graphics.Canvas(bitmap)
-        canvas.drawColor(android.graphics.Color.WHITE)
-        
-        val paint = android.graphics.Paint().apply {
-            color = android.graphics.Color.BLACK
-            style = android.graphics.Paint.Style.FILL
-        }
-        
-        // Dibujar patrón simple basado en hash del data
-        val hash = data.hashCode()
-        val cellSize = size / 21f
-        for (row in 0 until 21) {
-            for (col in 0 until 21) {
-                val bit = ((hash shr ((row * 21 + col) % 32)) and 1) == 1
-                // Patrones de esquina fijos
-                val isCorner = (row < 7 && col < 7) || (row < 7 && col >= 14) || (row >= 14 && col < 7)
-                if (isCorner || bit) {
-                    canvas.drawRect(
-                        col * cellSize,
-                        row * cellSize,
-                        (col + 1) * cellSize,
-                        (row + 1) * cellSize,
-                        paint
-                    )
+        return try {
+            // Usar ZXing para generar QR válido
+            val hints = hashMapOf<com.google.zxing.EncodeHintType, Any>()
+            hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
+            hints[com.google.zxing.EncodeHintType.MARGIN] = 1
+            
+            val writer = com.google.zxing.qrcode.QRCodeWriter()
+            val bitMatrix = writer.encode(data, com.google.zxing.BarcodeFormat.QR_CODE, size, size, hints)
+            
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
                 }
             }
+            bitmap
+        } catch (e: Exception) {
+            // Fallback: crear bitmap vacío con mensaje de error
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.drawColor(android.graphics.Color.WHITE)
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                textSize = 24f
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("Error QR", size / 2f, size / 2f, paint)
+            bitmap
         }
-        
-        return bitmap
     }
 }
 

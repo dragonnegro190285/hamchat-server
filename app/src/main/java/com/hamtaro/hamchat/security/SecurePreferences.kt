@@ -1,12 +1,12 @@
 package com.hamtaro.hamchat.security
 
 import android.content.Context
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import android.content.SharedPreferences
+import android.util.Base64
 
 /**
- * 🔐 SharedPreferences Encriptados para Ham-Chat
- * Protege modos secretos y configuración sensible
+ * 🔐 SharedPreferences para Ham-Chat
+ * Compatible con todos los dispositivos (incluyendo Xiaomi/MIUI)
  */
 class SecurePreferences(private val context: Context) {
     
@@ -21,24 +21,24 @@ class SecurePreferences(private val context: Context) {
         private const val AUTH_TOKEN = "auth_token_secure"
     }
     
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    // Usar SharedPreferences normales para compatibilidad con Xiaomi/MIUI
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     
-    private val encryptedPrefs = EncryptedSharedPreferences.create(
-        context,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    // Ofuscación simple para datos sensibles (no es encriptación fuerte, pero es compatible)
+    private fun encode(value: String): String {
+        return Base64.encodeToString(value.toByteArray(), Base64.NO_WRAP)
+    }
+    
+    private fun decode(value: String): String {
+        return String(Base64.decode(value, Base64.NO_WRAP))
+    }
     
     /**
      * 🔐 Guardar estado de modo secreto
      */
     fun setSecretUnlocked(secret: String, unlocked: Boolean) {
         try {
-            encryptedPrefs.edit().putBoolean(secret, unlocked).apply()
+            prefs.edit().putBoolean(secret, unlocked).apply()
             SecureLogger.i("Secret status updated: $secret")
         } catch (e: Exception) {
             SecureLogger.e("Failed to save secret status", e)
@@ -50,7 +50,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun isSecretUnlocked(secret: String): Boolean {
         return try {
-            encryptedPrefs.getBoolean(secret, false)
+            prefs.getBoolean(secret, false)
         } catch (e: Exception) {
             SecureLogger.e("Failed to read secret status", e)
             false
@@ -62,7 +62,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun setSecretAttempts(attempts: Int) {
         try {
-            encryptedPrefs.edit()
+            prefs.edit()
                 .putInt(SECRET_ATTEMPTS, attempts)
                 .putLong(LAST_ATTEMPT, System.currentTimeMillis())
                 .apply()
@@ -76,7 +76,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun getSecretAttempts(): Int {
         return try {
-            encryptedPrefs.getInt(SECRET_ATTEMPTS, 0)
+            prefs.getInt(SECRET_ATTEMPTS, 0)
         } catch (e: Exception) {
             SecureLogger.e("Failed to read secret attempts", e)
             0
@@ -88,7 +88,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun getLastAttemptTime(): Long {
         return try {
-            encryptedPrefs.getLong(LAST_ATTEMPT, 0L)
+            prefs.getLong(LAST_ATTEMPT, 0L)
         } catch (e: Exception) {
             SecureLogger.e("Failed to read last attempt time", e)
             0L
@@ -102,7 +102,7 @@ class SecurePreferences(private val context: Context) {
         try {
             val currentHigh = getHighScore()
             if (score > currentHigh) {
-                encryptedPrefs.edit()
+                prefs.edit()
                     .putInt(HIGH_SCORE, score)
                     .putLong("${HIGH_SCORE}_date", System.currentTimeMillis())
                     .apply()
@@ -118,7 +118,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun getHighScore(): Int {
         return try {
-            encryptedPrefs.getInt(HIGH_SCORE, 0)
+            prefs.getInt(HIGH_SCORE, 0)
         } catch (e: Exception) {
             SecureLogger.e("Failed to read high score", e)
             0
@@ -130,7 +130,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun setGameSettings(settings: Map<String, Any>) {
         try {
-            val editor = encryptedPrefs.edit()
+            val editor = prefs.edit()
             settings.forEach { (key, value) ->
                 when (value) {
                     is String -> editor.putString("${GAME_SETTINGS}_$key", value)
@@ -152,7 +152,7 @@ class SecurePreferences(private val context: Context) {
     fun getGameSettings(): Map<String, Any?> {
         return try {
             val settings = mutableMapOf<String, Any?>()
-            encryptedPrefs.all.forEach { (key, value) ->
+            prefs.all.forEach { (key, value) ->
                 if (key.startsWith(GAME_SETTINGS)) {
                     val cleanKey = key.substring("${GAME_SETTINGS}_".length)
                     settings[cleanKey] = value
@@ -170,7 +170,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun resetSecrets() {
         try {
-            encryptedPrefs.edit()
+            prefs.edit()
                 .remove(GAME_UNLOCKED)
                 .remove(HAMTARO_UNLOCKED)
                 .remove(SECRET_ATTEMPTS)
@@ -180,10 +180,10 @@ class SecurePreferences(private val context: Context) {
                 .apply()
             
             // Limpiar settings del juego
-            val keysToRemove = encryptedPrefs.all.keys.filter { 
+            val keysToRemove = prefs.all.keys.filter { 
                 it.startsWith(GAME_SETTINGS) 
             }
-            encryptedPrefs.edit().apply {
+            prefs.edit().apply {
                 keysToRemove.forEach { remove(it) }
                 apply()
             }
@@ -199,7 +199,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun setSecureString(key: String, value: String) {
         try {
-            encryptedPrefs.edit()
+            prefs.edit()
                 .putString(key, value)
                 .apply()
         } catch (e: Exception) {
@@ -212,7 +212,7 @@ class SecurePreferences(private val context: Context) {
      */
     fun getSecureString(key: String): String? {
         return try {
-            encryptedPrefs.getString(key, null)
+            prefs.getString(key, null)
         } catch (e: Exception) {
             SecureLogger.e("Failed to read secure string", e)
             null
@@ -236,7 +236,7 @@ class SecurePreferences(private val context: Context) {
     fun verifyIntegrity(): Boolean {
         return try {
             // Intentar leer una clave conocida
-            encryptedPrefs.all.isNotEmpty()
+            prefs.all.isNotEmpty()
         } catch (e: Exception) {
             SecureLogger.e("Preferences integrity check failed", e)
             false

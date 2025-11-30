@@ -62,8 +62,8 @@
             android:layout_gravity="center"
             android:src="@drawable/hamtaro"
             android:alpha="0.12"
-            android:scaleType="centerInside"
-            android:padding="32dp" />
+            android:scaleType="fitXY"
+            android:padding="16dp" />
 
         <ScrollView
             android:id="@+id/scroll_messages"

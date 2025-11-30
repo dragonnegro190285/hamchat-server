@@ -472,7 +472,25 @@ class MainActivity : BaseActivity() {
             hint = "Número de teléfono (solo dígitos, opcional)"
             inputType = InputType.TYPE_CLASS_PHONE
         }
+        
+        // Botón para escanear QR
+        val scanQrButton = Button(context).apply {
+            text = "📷 Escanear código QR"
+            setOnClickListener {
+                startQrScanner()
+            }
+        }
+        
+        // Separador
+        val separator = TextView(context).apply {
+            text = "─────── o ───────"
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 16, 0, 16)
+            setTextColor(0xFF888888.toInt())
+        }
 
+        container.addView(scanQrButton)
+        container.addView(separator)
         container.addView(usernameInput)
         container.addView(countryLabel)
         container.addView(countrySpinner)
@@ -589,6 +607,358 @@ class MainActivity : BaseActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Error agregando amigo Ham-Chat", Toast.LENGTH_SHORT).show()
         }
+    }
+    
+    // ========== Escáner de QR ==========
+    
+    private val QR_SCANNER_REQUEST_CODE = 49374
+    
+    /**
+     * Iniciar escáner de QR
+     */
+    private fun startQrScanner() {
+        // Usar Google Lens o app externa para escanear QR
+        try {
+            // Intentar abrir Google Lens
+            val lensIntent = Intent(Intent.ACTION_VIEW)
+            lensIntent.setData(Uri.parse("google://lens"))
+            
+            // Si no está disponible, usar cualquier escáner de QR instalado
+            val scanIntent = Intent("com.google.zxing.client.android.SCAN")
+            scanIntent.putExtra("SCAN_MODE", "QR_CODE_MODE")
+            
+            // Mostrar opciones
+            showQrScanOptions()
+        } catch (e: Exception) {
+            showQrScanOptions()
+        }
+    }
+    
+    private fun showQrScanOptions() {
+        val options = arrayOf(
+            "📷 Abrir cámara y escanear",
+            "📋 Pegar código QR desde portapapeles",
+            "✏️ Ingresar ID de usuario manualmente"
+        )
+        
+        AlertDialog.Builder(this)
+            .setTitle("📱 Escanear código QR")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openCameraForQr()
+                    1 -> pasteQrFromClipboard()
+                    2 -> enterUserIdManually()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun openCameraForQr() {
+        // Intentar abrir una app de escáner de QR
+        try {
+            val intent = Intent("com.google.zxing.client.android.SCAN")
+            intent.putExtra("SCAN_MODE", "QR_CODE_MODE")
+            startActivityForResult(intent, QR_SCANNER_REQUEST_CODE)
+        } catch (e: Exception) {
+            // Si no hay escáner instalado, sugerir instalar uno
+            AlertDialog.Builder(this)
+                .setTitle("Escáner no disponible")
+                .setMessage("No se encontró una app de escáner QR.\n\n¿Deseas buscar una en Play Store?")
+                .setPositiveButton("Buscar") { _, _ ->
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=qr+scanner"))
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "No se pudo abrir Play Store", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        }
+    }
+    
+    private fun pasteQrFromClipboard() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip
+        if (clip != null && clip.itemCount > 0) {
+            val text = clip.getItemAt(0).text?.toString()
+            if (!text.isNullOrEmpty()) {
+                handleQrScanResult(text)
+            } else {
+                Toast.makeText(this, "El portapapeles está vacío", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "No hay nada en el portapapeles", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun enterUserIdManually() {
+        val input = EditText(this).apply {
+            hint = "ID de usuario o nombre"
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(48, 32, 48, 32)
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("Agregar por ID")
+            .setMessage("Ingresa el ID de usuario o nombre de tu amigo:")
+            .setView(input)
+            .setPositiveButton("Agregar") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    // Intentar como ID numérico
+                    val userId = text.toIntOrNull()
+                    if (userId != null) {
+                        addFriendFromQr(userId, "Usuario $userId")
+                    } else {
+                        // Buscar por nombre de usuario
+                        addRemoteFriend(text, "", "")
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostrar mi código QR desde ajustes
+     */
+    private fun showMyQrCodeFromSettings() {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "Debes registrarte primero", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Obtener datos del QR desde el servidor
+        HamChatApiClient.api.getQrData("Bearer $token")
+            .enqueue(object : Callback<com.hamtaro.hamchat.network.QrDataResponse> {
+                override fun onResponse(
+                    call: Call<com.hamtaro.hamchat.network.QrDataResponse>,
+                    response: Response<com.hamtaro.hamchat.network.QrDataResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val data = response.body()!!
+                        runOnUiThread {
+                            showQrCodeDialog(data.qrData, data.username)
+                        }
+                    } else {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Error al obtener datos del QR", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                
+                override fun onFailure(call: Call<com.hamtaro.hamchat.network.QrDataResponse>, t: Throwable) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Error de conexión: ${t.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            })
+    }
+    
+    /**
+     * Mostrar diálogo con código QR
+     */
+    private fun showQrCodeDialog(qrData: String, username: String) {
+        val size = 512
+        val qrBitmap = generateQrBitmap(qrData, size)
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(32, 32, 32, 32)
+        }
+        
+        val imageView = ImageView(this).apply {
+            setImageBitmap(qrBitmap)
+            layoutParams = LinearLayout.LayoutParams(400, 400)
+        }
+        
+        val infoText = TextView(this).apply {
+            text = "Escanea este código para agregar a\n$username como amigo"
+            gravity = android.view.Gravity.CENTER
+            setPadding(16, 24, 16, 8)
+            setTextColor(0xFF333333.toInt())
+        }
+        
+        val tipText = TextView(this).apply {
+            text = "💡 Tu amigo puede escanearlo desde\n\"Agregar amigo\" → \"📷 Escanear QR\""
+            gravity = android.view.Gravity.CENTER
+            setPadding(16, 8, 16, 16)
+            setTextColor(0xFF666666.toInt())
+            textSize = 12f
+        }
+        
+        container.addView(imageView)
+        container.addView(infoText)
+        container.addView(tipText)
+        
+        AlertDialog.Builder(this)
+            .setTitle("📱 Mi código QR")
+            .setView(container)
+            .setPositiveButton("Cerrar", null)
+            .setNeutralButton("Compartir") { _, _ ->
+                shareQrCode(qrBitmap, username)
+            }
+            .show()
+    }
+    
+    /**
+     * Compartir código QR como imagen
+     */
+    private fun shareQrCode(bitmap: android.graphics.Bitmap, username: String) {
+        try {
+            // Guardar bitmap temporalmente
+            val cachePath = java.io.File(cacheDir, "images")
+            cachePath.mkdirs()
+            val file = java.io.File(cachePath, "qr_$username.png")
+            val stream = java.io.FileOutputStream(file)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+            stream.close()
+            
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                file
+            )
+            
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "Escanea este código QR para agregarme en Ham-Chat 🐹")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            
+            startActivity(Intent.createChooser(shareIntent, "Compartir código QR"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al compartir: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Generar bitmap de código QR usando ZXing
+     */
+    private fun generateQrBitmap(data: String, size: Int): android.graphics.Bitmap {
+        return try {
+            val hints = hashMapOf<com.google.zxing.EncodeHintType, Any>()
+            hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
+            hints[com.google.zxing.EncodeHintType.MARGIN] = 1
+            
+            val writer = com.google.zxing.qrcode.QRCodeWriter()
+            val bitMatrix = writer.encode(data, com.google.zxing.BarcodeFormat.QR_CODE, size, size, hints)
+            
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                }
+            }
+            bitmap
+        } catch (e: Exception) {
+            // Fallback: crear bitmap con mensaje de error
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.drawColor(android.graphics.Color.WHITE)
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.RED
+                textSize = 24f
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("Error QR", size / 2f, size / 2f, paint)
+            bitmap
+        }
+    }
+    
+    /**
+     * Procesar resultado del escáner QR
+     */
+    private fun handleQrScanResult(contents: String?) {
+        if (contents.isNullOrEmpty()) {
+            Toast.makeText(this, "No se pudo leer el código QR", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        try {
+            // Formato del servidor: hamchat://add?u=USERNAME&p=PHONE&id=USER_ID
+            // También soporta: hamchat://add?user_id=X&username=Y
+            // o JSON: {"user_id": X, "username": "Y"}
+            
+            if (contents.startsWith("hamchat://add")) {
+                // Formato URL
+                val uri = android.net.Uri.parse(contents)
+                
+                // Intentar formato del servidor: u, p, id
+                var userId = uri.getQueryParameter("id")?.toIntOrNull()
+                var username = uri.getQueryParameter("u")
+                
+                // Si no, intentar formato alternativo: user_id, username
+                if (userId == null) {
+                    userId = uri.getQueryParameter("user_id")?.toIntOrNull()
+                }
+                if (username.isNullOrEmpty()) {
+                    username = uri.getQueryParameter("username")
+                }
+                
+                if (userId != null && userId > 0) {
+                    addFriendFromQr(userId, username ?: "Usuario")
+                } else {
+                    Toast.makeText(this, "Código QR inválido", Toast.LENGTH_SHORT).show()
+                }
+            } else if (contents.startsWith("{")) {
+                // Formato JSON
+                val json = org.json.JSONObject(contents)
+                val userId = json.optInt("user_id", json.optInt("id", -1))
+                val username = json.optString("username", json.optString("u", "Usuario"))
+                
+                if (userId > 0) {
+                    addFriendFromQr(userId, username)
+                } else {
+                    Toast.makeText(this, "Código QR inválido", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Intentar como ID directo
+                val userId = contents.toIntOrNull()
+                if (userId != null && userId > 0) {
+                    addFriendFromQr(userId, "Usuario $userId")
+                } else {
+                    Toast.makeText(this, "Código QR no reconocido", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error procesando QR: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Agregar amigo desde datos del QR
+     */
+    private fun addFriendFromQr(userId: Int, username: String) {
+        val contactId = "remote_$userId"
+        
+        // Verificar si ya existe
+        val existingContacts = getAllContacts()
+        if (existingContacts.any { contact -> contact.id == contactId }) {
+            Toast.makeText(this, "Ya tienes a $username en tus contactos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val newContact = ContactItem(
+            id = contactId,
+            name = username,
+            lastMessage = "",
+            timestamp = "",
+            isOnline = false,
+            unreadCount = 0
+        )
+        saveContactToPrefs(newContact, "")
+        updateChatList()
+        renderFriends()
+        
+        Toast.makeText(this, "✅ Amigo agregado: $username", Toast.LENGTH_SHORT).show()
     }
 
     private fun ensureRegistered() {
@@ -908,6 +1278,17 @@ class MainActivity : BaseActivity() {
     }
     
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        // Procesar resultado del escáner QR externo (ZXing Barcode Scanner)
+        if (requestCode == QR_SCANNER_REQUEST_CODE) {
+            if (resultCode == RESULT_OK && data != null) {
+                val contents = data.getStringExtra("SCAN_RESULT")
+                handleQrScanResult(contents)
+            } else {
+                Toast.makeText(this, "Escaneo cancelado", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == STORAGE_PERMISSION_CODE) {
             // Verificar permiso después de volver de configuración
@@ -2404,6 +2785,12 @@ class MainActivity : BaseActivity() {
         
         helpButton.setOnClickListener {
             showHelpDialog()
+        }
+        
+        // Botón de Mi código QR
+        val myQrCodeButton: Button? = findViewById(R.id.btn_my_qr_code)
+        myQrCodeButton?.setOnClickListener {
+            showMyQrCodeFromSettings()
         }
         
         backupButton = findViewById(R.id.btn_backup)

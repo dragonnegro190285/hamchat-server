@@ -67,3 +67,20 @@
 -keep class com.google.gson.** { *; }
 -keepattributes Signature
 -keepattributes *Annotation*
+
+# Security - Evitar problemas con Xiaomi/MIUI
+-keep class javax.crypto.** { *; }
+-keep class javax.security.** { *; }
+-keep class java.security.** { *; }
+-keep class android.security.** { *; }
+-keep class androidx.security.** { *; }
+-dontwarn javax.crypto.**
+-dontwarn java.security.**
+
+# EncryptedSharedPreferences
+-keep class androidx.security.crypto.** { *; }
+-keep class com.google.crypto.tink.** { *; }
+
+# Mantener clases de la app sin ofuscar
+-keepnames class com.hamtaro.hamchat.** { *; }
+-keepnames class com.hamtaro.hamchat.security.** { *; }

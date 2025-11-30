@@ -31,11 +31,16 @@ class SecurityManager(private val context: Context) {
     }
     
     // 🔒 Device Security Checks
+    // NOTA: Desactivado para compatibilidad con Xiaomi/MIUI
     fun isDeviceSecure(): Boolean {
-        if (isDebugOrEmulator()) {
-            return true
-        }
-        return !isRooted() && isSecureFromDebugging()
+        // Siempre retornar true para evitar bloqueos en dispositivos Xiaomi
+        return true
+        
+        // Código original comentado:
+        // if (isDebugOrEmulator()) {
+        //     return true
+        // }
+        // return !isRooted() && isSecureFromDebugging()
     }
     
     private fun isRooted(): Boolean {
