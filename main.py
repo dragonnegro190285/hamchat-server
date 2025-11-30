@@ -714,6 +714,118 @@ def check_recovery_available(phone_e164: str):
     }
 
 
+# ---------- Cleanup endpoints ----------
+
+
+class CleanupRequest(BaseModel):
+    days_to_keep: int = Field(default=7, ge=1, le=365)
+
+
+class CleanupResponse(BaseModel):
+    deleted_messages: int
+    remaining_messages: int
+    cleanup_date: str
+
+
+@app.post("/api/cleanup/messages", response_model=CleanupResponse)
+def cleanup_old_messages(
+    req: CleanupRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+) -> CleanupResponse:
+    """
+    Eliminar mensajes antiguos del usuario actual.
+    Solo elimina mensajes más antiguos que days_to_keep días.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Calcular fecha límite
+    from datetime import datetime, timedelta
+    cutoff_date = (datetime.utcnow() - timedelta(days=req.days_to_keep)).isoformat() + "Z"
+    
+    # Contar mensajes a eliminar
+    cur.execute(
+        """
+        SELECT COUNT(*) as count FROM messages 
+        WHERE (sender_id = ? OR recipient_id = ?) 
+        AND created_at < ?
+        """,
+        (current_user_id, current_user_id, cutoff_date)
+    )
+    deleted_count = cur.fetchone()["count"]
+    
+    # Eliminar mensajes antiguos
+    cur.execute(
+        """
+        DELETE FROM messages 
+        WHERE (sender_id = ? OR recipient_id = ?) 
+        AND created_at < ?
+        """,
+        (current_user_id, current_user_id, cutoff_date)
+    )
+    
+    # Contar mensajes restantes
+    cur.execute(
+        """
+        SELECT COUNT(*) as count FROM messages 
+        WHERE sender_id = ? OR recipient_id = ?
+        """,
+        (current_user_id, current_user_id)
+    )
+    remaining_count = cur.fetchone()["count"]
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"🗑️ Usuario {current_user_id}: {deleted_count} mensajes eliminados (anteriores a {cutoff_date})")
+    
+    return CleanupResponse(
+        deleted_messages=deleted_count,
+        remaining_messages=remaining_count,
+        cleanup_date=cutoff_date
+    )
+
+
+@app.get("/api/cleanup/stats")
+def get_cleanup_stats(current_user_id: int = Depends(get_user_id_from_token)):
+    """
+    Obtener estadísticas de mensajes del usuario para decidir limpieza.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Total de mensajes
+    cur.execute(
+        """
+        SELECT COUNT(*) as total FROM messages 
+        WHERE sender_id = ? OR recipient_id = ?
+        """,
+        (current_user_id, current_user_id)
+    )
+    total = cur.fetchone()["total"]
+    
+    # Mensajes por antigüedad
+    from datetime import datetime, timedelta
+    
+    stats = {"total": total, "by_age": {}}
+    
+    for days in [7, 14, 30, 60, 90]:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat() + "Z"
+        cur.execute(
+            """
+            SELECT COUNT(*) as count FROM messages 
+            WHERE (sender_id = ? OR recipient_id = ?) 
+            AND created_at < ?
+            """,
+            (current_user_id, current_user_id, cutoff)
+        )
+        stats["by_age"][f"older_than_{days}_days"] = cur.fetchone()["count"]
+    
+    conn.close()
+    
+    return stats
+
+
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
 def get_user_by_username(username: str) -> UserSearchResponse:
     conn = get_db()
