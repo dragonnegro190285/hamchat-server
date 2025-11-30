@@ -207,6 +207,30 @@ data class RestoreResponse(
     val updated_at: String
 )
 
+// ========== Recovery Models ==========
+
+data class SetRecoveryPasswordRequest(
+    val recovery_password: String
+)
+
+data class RecoverAccountRequest(
+    val phone_country_code: String,
+    val phone_national: String,
+    val recovery_password: String
+)
+
+data class RecoverAccountResponse(
+    val user_id: Int,
+    val username: String,
+    val token: String,
+    val has_backup: Boolean
+)
+
+data class RecoveryCheckResponse(
+    val exists: Boolean,
+    val has_recovery: Boolean
+)
+
 interface HamChatApi {
 
     @POST("register")
@@ -367,6 +391,24 @@ interface HamChatApi {
         @Header("Authorization") authHeader: String,
         @retrofit2.http.Path("device_id") deviceId: String
     ): Call<Map<String, Any>>
+    
+    // ========== Recovery ==========
+    
+    @POST("recovery/set-password")
+    fun setRecoveryPassword(
+        @Header("Authorization") authHeader: String,
+        @Body body: SetRecoveryPasswordRequest
+    ): Call<Map<String, Any>>
+    
+    @POST("recovery/recover")
+    fun recoverAccount(
+        @Body body: RecoverAccountRequest
+    ): Call<RecoverAccountResponse>
+    
+    @GET("recovery/check/{phone_e164}")
+    fun checkRecoveryAvailable(
+        @retrofit2.http.Path("phone_e164") phoneE164: String
+    ): Call<RecoveryCheckResponse>
 }
 
 object HamChatApiClient {

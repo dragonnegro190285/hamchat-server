@@ -658,12 +658,24 @@ class MainActivity : BaseActivity() {
             hint = "Número de teléfono (solo dígitos)"
             inputType = InputType.TYPE_CLASS_PHONE
         }
+        
+        val passwordLabel = TextView(context).apply {
+            text = "Contraseña de recuperación (mínimo 4 caracteres)"
+            setPadding(0, 16, 0, 4)
+        }
+        
+        val passwordInput = EditText(context).apply {
+            hint = "Contraseña para recuperar cuenta"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
 
         container.addView(countryLabel)
         container.addView(countrySpinner)
         container.addView(addLadaButton)
         container.addView(nameInput)
         container.addView(phoneInput)
+        container.addView(passwordLabel)
+        container.addView(passwordInput)
 
         androidx.appcompat.app.AlertDialog.Builder(context)
             .setTitle("Registro Ham-Chat")
@@ -674,13 +686,20 @@ class MainActivity : BaseActivity() {
                 val cc = if (selectedIndex in countryValues.indices) countryValues[selectedIndex] else "+52"
                 val username = nameInput.text.toString().trim()
                 val phoneDigits = phoneInput.text.toString().filter { it.isDigit() }
+                val recoveryPassword = passwordInput.text.toString().trim()
 
                 if (cc.isEmpty() || username.isEmpty() || phoneDigits.isEmpty()) {
                     Toast.makeText(context, "Ingresa nombre y número", Toast.LENGTH_SHORT).show()
                     showRegistrationDialog()
+                } else if (recoveryPassword.length < 4) {
+                    Toast.makeText(context, "La contraseña debe tener al menos 4 caracteres", Toast.LENGTH_SHORT).show()
+                    showRegistrationDialog()
                 } else {
-                    performRegistration(cc, username, phoneDigits)
+                    performRegistration(cc, username, phoneDigits, recoveryPassword)
                 }
+            }
+            .setNeutralButton("🔑 Recuperar cuenta") { _, _ ->
+                showRecoveryDialog()
             }
             .show()
     }
@@ -804,7 +823,8 @@ class MainActivity : BaseActivity() {
     private fun performRegistration(
         countryCode: String,
         username: String,
-        phoneDigits: String
+        phoneDigits: String,
+        recoveryPassword: String = ""
     ) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val password = UUID.randomUUID().toString().replace("-", "").take(12)
@@ -848,7 +868,9 @@ class MainActivity : BaseActivity() {
                         "Usuario registrado, iniciando sesion...",
                         Toast.LENGTH_SHORT
                     ).show()
-                    performLogin(body.username, password)
+                    
+                    // Guardar contraseña de recuperación después del login
+                    performLoginWithRecovery(body.username, password, recoveryPassword)
                 } else {
                     val errorBody = response.errorBody()?.string() ?: "Sin detalles"
                     val code = response.code()
@@ -943,6 +965,185 @@ class MainActivity : BaseActivity() {
                 SecureLogger.e("Login network error", t)
             }
         })
+    }
+    
+    /**
+     * Login y luego establecer contraseña de recuperación
+     */
+    private fun performLoginWithRecovery(username: String, password: String, recoveryPassword: String) {
+        val request = LoginRequest(username = username, password = password)
+        
+        HamChatApiClient.api.login(request).enqueue(object : Callback<LoginResponse> {
+            override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
+                if (response.isSuccessful && response.body() != null) {
+                    val body = response.body()!!
+                    try {
+                        SecurePreferences(this@MainActivity).setAuthToken(body.token)
+                        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        prefs.edit().putInt(KEY_AUTH_USER_ID, body.user_id).apply()
+                        
+                        // Establecer contraseña de recuperación
+                        if (recoveryPassword.isNotEmpty()) {
+                            setRecoveryPassword(body.token, recoveryPassword)
+                        }
+                        
+                        Toast.makeText(this@MainActivity, "✅ Registro completado", Toast.LENGTH_SHORT).show()
+                        refreshSettingsData()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this@MainActivity, "Error al iniciar sesión", Toast.LENGTH_SHORT).show()
+                }
+            }
+            
+            override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
+                Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+    
+    /**
+     * Establece la contraseña de recuperación en el servidor
+     */
+    private fun setRecoveryPassword(token: String, recoveryPassword: String) {
+        val request = com.hamtaro.hamchat.network.SetRecoveryPasswordRequest(recovery_password = recoveryPassword)
+        
+        HamChatApiClient.api.setRecoveryPassword("Bearer $token", request)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "🔑 Contraseña de recuperación guardada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {}
+            })
+    }
+    
+    /**
+     * Muestra diálogo para recuperar cuenta
+     */
+    private fun showRecoveryDialog() {
+        val context = this
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 8)
+        }
+        
+        val infoText = TextView(context).apply {
+            text = "Ingresa tu número de teléfono y la contraseña de recuperación que creaste al registrarte."
+            setPadding(0, 0, 0, 16)
+        }
+        
+        val (countryValues, countryDisplay) = loadLocalLadas()
+        
+        val countrySpinner = android.widget.Spinner(context)
+        val countryAdapter = android.widget.ArrayAdapter<String>(
+            context,
+            android.R.layout.simple_spinner_item,
+            countryDisplay
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        countrySpinner.adapter = countryAdapter
+        
+        val phoneInput = EditText(context).apply {
+            hint = "Número de teléfono"
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        
+        val passwordInput = EditText(context).apply {
+            hint = "Contraseña de recuperación"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        
+        container.addView(infoText)
+        container.addView(countrySpinner)
+        container.addView(phoneInput)
+        container.addView(passwordInput)
+        
+        androidx.appcompat.app.AlertDialog.Builder(context)
+            .setTitle("🔑 Recuperar cuenta")
+            .setView(container)
+            .setPositiveButton("Recuperar") { _, _ ->
+                val selectedIndex = countrySpinner.selectedItemPosition
+                val cc = if (selectedIndex in countryValues.indices) countryValues[selectedIndex] else "+52"
+                val phoneDigits = phoneInput.text.toString().filter { it.isDigit() }
+                val recoveryPassword = passwordInput.text.toString().trim()
+                
+                if (phoneDigits.isEmpty() || recoveryPassword.isEmpty()) {
+                    Toast.makeText(context, "Ingresa teléfono y contraseña", Toast.LENGTH_SHORT).show()
+                    showRecoveryDialog()
+                } else {
+                    performRecovery(cc, phoneDigits, recoveryPassword)
+                }
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                showRegistrationDialog()
+            }
+            .show()
+    }
+    
+    /**
+     * Ejecuta la recuperación de cuenta
+     */
+    private fun performRecovery(countryCode: String, phoneDigits: String, recoveryPassword: String) {
+        Toast.makeText(this, "Recuperando cuenta...", Toast.LENGTH_SHORT).show()
+        
+        val request = com.hamtaro.hamchat.network.RecoverAccountRequest(
+            phone_country_code = countryCode,
+            phone_national = phoneDigits,
+            recovery_password = recoveryPassword
+        )
+        
+        HamChatApiClient.api.recoverAccount(request)
+            .enqueue(object : Callback<com.hamtaro.hamchat.network.RecoverAccountResponse> {
+                override fun onResponse(
+                    call: Call<com.hamtaro.hamchat.network.RecoverAccountResponse>,
+                    response: Response<com.hamtaro.hamchat.network.RecoverAccountResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val body = response.body()!!
+                        
+                        // Guardar credenciales
+                        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        prefs.edit()
+                            .putString(KEY_AUTH_USERNAME, body.username)
+                            .putInt(KEY_AUTH_USER_ID, body.user_id)
+                            .putString(KEY_AUTH_PHONE_E164, countryCode + phoneDigits)
+                            .putString("phone_country_code", countryCode)
+                            .putString("phone_national", phoneDigits)
+                            .apply()
+                        
+                        SecurePreferences(this@MainActivity).setAuthToken(body.token)
+                        
+                        Toast.makeText(this@MainActivity, "✅ Cuenta recuperada: ${body.username}", Toast.LENGTH_SHORT).show()
+                        
+                        // Si tiene respaldos, ofrecer restaurar
+                        if (body.has_backup) {
+                            androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("📥 Respaldo encontrado")
+                                .setMessage("Se encontraron respaldos de chats. ¿Deseas restaurarlos?")
+                                .setPositiveButton("Restaurar") { _, _ ->
+                                    showBackupOptions()
+                                }
+                                .setNegativeButton("Después", null)
+                                .show()
+                        }
+                        
+                        refreshSettingsData()
+                    } else {
+                        val errorBody = response.errorBody()?.string() ?: "Error desconocido"
+                        Toast.makeText(this@MainActivity, "Error: $errorBody", Toast.LENGTH_LONG).show()
+                        showRecoveryDialog()
+                    }
+                }
+                
+                override fun onFailure(call: Call<com.hamtaro.hamchat.network.RecoverAccountResponse>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión: ${t.message}", Toast.LENGTH_SHORT).show()
+                    showRecoveryDialog()
+                }
+            })
     }
     
     /**
