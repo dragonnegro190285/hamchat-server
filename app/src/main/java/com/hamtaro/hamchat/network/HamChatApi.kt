@@ -524,6 +524,45 @@ interface HamChatApi {
         @Header("Authorization") token: String,
         @retrofit2.http.Path("notification_id") notificationId: Int
     ): Call<Map<String, Any>>
+    
+    // ========== Indicador "Escribiendo..." ==========
+    
+    @POST("typing")
+    fun setTypingStatus(
+        @Header("Authorization") token: String,
+        @Body body: TypingRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("typing/{user_id}")
+    fun getTypingStatus(
+        @Header("Authorization") token: String,
+        @retrofit2.http.Path("user_id") userId: Int
+    ): Call<TypingStatusResponse>
+    
+    // ========== Foto de Perfil ==========
+    
+    @POST("profile/photo")
+    fun setProfilePhoto(
+        @Header("Authorization") token: String,
+        @Body body: ProfilePhotoRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("profile/photo/{user_id}")
+    fun getProfilePhoto(
+        @retrofit2.http.Path("user_id") userId: Int
+    ): Call<ProfilePhotoResponse>
+    
+    @DELETE("profile/photo")
+    fun deleteProfilePhoto(
+        @Header("Authorization") token: String
+    ): Call<Map<String, Any>>
+    
+    // ========== QR para agregar contacto ==========
+    
+    @GET("profile/qr-data")
+    fun getQrData(
+        @Header("Authorization") token: String
+    ): Call<QrDataResponse>
 }
 
 // Contact deletion models
@@ -590,6 +629,33 @@ data class BlockNotificationDto(
     @SerializedName("blocker_username") val blockerUsername: String,
     @SerializedName("action") val action: String, // "blocked" o "unblocked"
     @SerializedName("created_at") val createdAt: String
+)
+
+// Typing indicator models
+data class TypingRequest(
+    @SerializedName("to_user_id") val toUserId: Int,
+    @SerializedName("is_typing") val isTyping: Boolean
+)
+
+data class TypingStatusResponse(
+    @SerializedName("is_typing") val isTyping: Boolean
+)
+
+// Profile photo models
+data class ProfilePhotoRequest(
+    @SerializedName("photo_data") val photoData: String
+)
+
+data class ProfilePhotoResponse(
+    @SerializedName("photo_data") val photoData: String?
+)
+
+// QR data models
+data class QrDataResponse(
+    @SerializedName("qr_data") val qrData: String,
+    @SerializedName("username") val username: String,
+    @SerializedName("phone") val phone: String,
+    @SerializedName("user_id") val userId: Int
 )
 
 // Full Backup models

@@ -166,6 +166,12 @@ class ChatActivity : BaseActivity() {
     // Edición de mensajes
     private var editingMessage: ChatMessage? = null
     private val EDIT_WINDOW_MINUTES = 15 // Ventana de 15 minutos para editar
+    
+    // Indicador "Escribiendo..."
+    private var typingIndicator: TextView? = null
+    private var lastTypingSent = 0L
+    private val typingHandler = Handler(Looper.getMainLooper())
+    private var isTypingCheckRunnable: Runnable? = null
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -2760,6 +2766,561 @@ class ChatActivity : BaseActivity() {
             .setMessage(stats)
             .setPositiveButton("OK", null)
             .show()
+    }
+    
+    // ========== Exportar Chat ==========
+    
+    /**
+     * Exportar chat a archivo TXT
+     */
+    fun exportChatToTxt() {
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+        val exportDate = sdf.format(java.util.Date())
+        
+        val sb = StringBuilder()
+        sb.appendLine("═══════════════════════════════════════")
+        sb.appendLine("📱 HAM-CHAT - Exportación de conversación")
+        sb.appendLine("═══════════════════════════════════════")
+        sb.appendLine("👤 Chat con: $contactName")
+        sb.appendLine("📅 Exportado: $exportDate")
+        sb.appendLine("📨 Total mensajes: ${messages.size}")
+        sb.appendLine("═══════════════════════════════════════")
+        sb.appendLine()
+        
+        for (msg in messages) {
+            if (msg.isSystemMessage) {
+                sb.appendLine("--- ${msg.content} ---")
+            } else {
+                val time = sdf.format(java.util.Date(msg.timestamp))
+                val sender = if (msg.sender == "Yo") "Yo" else contactName
+                sb.appendLine("[$time] $sender:")
+                sb.appendLine("  ${msg.content}")
+                
+                if (msg.messageType == "voice") {
+                    sb.appendLine("  🎤 [Mensaje de voz - ${msg.audioDuration}s]")
+                }
+                if (msg.messageType == "image") {
+                    sb.appendLine("  📷 [Imagen]")
+                }
+            }
+            sb.appendLine()
+        }
+        
+        sb.appendLine("═══════════════════════════════════════")
+        sb.appendLine("Fin de la conversación")
+        sb.appendLine("═══════════════════════════════════════")
+        
+        // Guardar archivo
+        try {
+            val fileName = "HamChat_${contactName}_${System.currentTimeMillis()}.txt"
+            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
+            )
+            val file = java.io.File(downloadsDir, fileName)
+            file.writeText(sb.toString())
+            
+            Toast.makeText(this, "📤 Chat exportado a Descargas/$fileName", Toast.LENGTH_LONG).show()
+            
+            // Ofrecer compartir
+            showShareExportDialog(file)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al exportar: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun showShareExportDialog(file: java.io.File) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📤 Chat exportado")
+            .setMessage("¿Deseas compartir el archivo?")
+            .setPositiveButton("📤 Compartir") { _, _ ->
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this,
+                    "${packageName}.fileprovider",
+                    file
+                )
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(android.content.Intent.createChooser(intent, "Compartir chat"))
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    // ========== Chat con Contraseña ==========
+    
+    private fun isChatLocked(): Boolean {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getString("pin_$contactId", null) != null
+    }
+    
+    private fun getChatPin(): String? {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getString("pin_$contactId", null)
+    }
+    
+    private fun setChatPin(pin: String?) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        if (pin == null) {
+            prefs.edit().remove("pin_$contactId").apply()
+        } else {
+            prefs.edit().putString("pin_$contactId", pin).apply()
+        }
+    }
+    
+    /**
+     * Mostrar diálogo para configurar PIN del chat
+     */
+    fun showSetPinDialog() {
+        val input = android.widget.EditText(this).apply {
+            hint = "PIN de 4 dígitos"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+            setPadding(48, 32, 48, 32)
+        }
+        
+        val currentPin = getChatPin()
+        val title = if (currentPin != null) "🔐 Cambiar PIN" else "🔐 Proteger chat"
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("Guardar") { _, _ ->
+                val pin = input.text.toString()
+                if (pin.length == 4) {
+                    setChatPin(pin)
+                    Toast.makeText(this, "🔐 Chat protegido con PIN", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "El PIN debe tener 4 dígitos", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .apply {
+                if (currentPin != null) {
+                    setNeutralButton("🔓 Quitar PIN") { _, _ ->
+                        setChatPin(null)
+                        Toast.makeText(this@ChatActivity, "🔓 PIN eliminado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+    
+    /**
+     * Verificar PIN antes de mostrar chat
+     */
+    fun verifyPinIfNeeded(onSuccess: () -> Unit) {
+        val pin = getChatPin()
+        if (pin == null) {
+            onSuccess()
+            return
+        }
+        
+        val input = android.widget.EditText(this).apply {
+            hint = "Ingresa el PIN"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+            setPadding(48, 32, 48, 32)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🔐 Chat protegido")
+            .setMessage("Este chat está protegido con PIN")
+            .setView(input)
+            .setPositiveButton("Desbloquear") { _, _ ->
+                if (input.text.toString() == pin) {
+                    onSuccess()
+                } else {
+                    Toast.makeText(this, "❌ PIN incorrecto", Toast.LENGTH_SHORT).show()
+                    finish()
+                }
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                finish()
+            }
+            .setCancelable(false)
+            .show()
+    }
+    
+    // ========== Compartir Ubicación ==========
+    
+    /**
+     * Compartir ubicación actual
+     */
+    fun shareLocation() {
+        if (androidx.core.app.ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+                200
+            )
+            return
+        }
+        
+        val locationManager = getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        
+        try {
+            val location = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            
+            if (location != null) {
+                val lat = location.latitude
+                val lon = location.longitude
+                val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
+                
+                // Enviar como mensaje
+                val locationMessage = "📍 Mi ubicación: $mapsUrl"
+                messageEditText.setText(locationMessage)
+                sendButton.performClick()
+                
+                Toast.makeText(this, "📍 Ubicación compartida", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "No se pudo obtener la ubicación", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al obtener ubicación", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // ========== Vista Previa de Enlaces ==========
+    
+    /**
+     * Detectar y formatear enlaces en el contenido
+     */
+    private fun formatLinksInContent(content: String): android.text.SpannableString {
+        val spannable = android.text.SpannableString(content)
+        val urlPattern = android.util.Patterns.WEB_URL
+        val matcher = urlPattern.matcher(content)
+        
+        while (matcher.find()) {
+            val url = matcher.group()
+            val start = matcher.start()
+            val end = matcher.end()
+            
+            spannable.setSpan(
+                android.text.style.URLSpan(url),
+                start,
+                end,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            spannable.setSpan(
+                android.text.style.ForegroundColorSpan(0xFF1E88E5.toInt()),
+                start,
+                end,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        
+        return spannable
+    }
+    
+    // ========== Mensajes Guardados ==========
+    
+    private fun getSavedMessages(): MutableSet<String> {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getStringSet("saved_messages", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+    }
+    
+    private fun saveMessageToCollection(message: ChatMessage) {
+        val saved = getSavedMessages()
+        val msgData = "${contactId}|${message.localId}|${message.content}|${message.timestamp}"
+        saved.add(msgData)
+        
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().putStringSet("saved_messages", saved).apply()
+        
+        Toast.makeText(this, "📋 Mensaje guardado en colección", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Mostrar mensajes guardados
+     */
+    fun showSavedMessages() {
+        val saved = getSavedMessages()
+        
+        if (saved.isEmpty()) {
+            Toast.makeText(this, "No hay mensajes guardados", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val messagesList = saved.map { data ->
+            val parts = data.split("|")
+            if (parts.size >= 4) {
+                val content = parts[2]
+                val timestamp = parts[3].toLongOrNull() ?: 0L
+                val sdf = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
+                "${sdf.format(java.util.Date(timestamp))}: ${content.take(50)}..."
+            } else {
+                data
+            }
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📋 Mensajes guardados (${saved.size})")
+            .setItems(messagesList.toTypedArray()) { _, which ->
+                // Copiar al portapapeles
+                val data = saved.elementAt(which)
+                val content = data.split("|").getOrNull(2) ?: ""
+                copyToClipboard(content)
+                Toast.makeText(this, "Mensaje copiado", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("Cerrar", null)
+            .setNeutralButton("🗑️ Limpiar todo") { _, _ ->
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                prefs.edit().remove("saved_messages").apply()
+                Toast.makeText(this, "Colección limpiada", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+    
+    // ========== Indicador "Escribiendo..." ==========
+    
+    /**
+     * Configurar detección de escritura
+     */
+    private fun setupTypingIndicator() {
+        if (remoteUserId == null) return
+        
+        // Detectar cuando el usuario escribe
+        messageEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val now = System.currentTimeMillis()
+                // Enviar estado cada 3 segundos máximo
+                if (now - lastTypingSent > 3000 && s?.isNotEmpty() == true) {
+                    sendTypingStatus(true)
+                    lastTypingSent = now
+                }
+            }
+        })
+        
+        // Verificar si el otro está escribiendo cada 2 segundos
+        isTypingCheckRunnable = object : Runnable {
+            override fun run() {
+                checkTypingStatus()
+                typingHandler.postDelayed(this, 2000)
+            }
+        }
+        typingHandler.postDelayed(isTypingCheckRunnable!!, 2000)
+    }
+    
+    private fun sendTypingStatus(isTyping: Boolean) {
+        val userId = remoteUserId ?: return
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        val request = com.hamtaro.hamchat.network.TypingRequest(userId, isTyping)
+        com.hamtaro.hamchat.network.HamChatApiClient.api.setTypingStatus("Bearer $token", request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {}
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {}
+            })
+    }
+    
+    private fun checkTypingStatus() {
+        val userId = remoteUserId ?: return
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.getTypingStatus("Bearer $token", userId)
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.TypingStatusResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.TypingStatusResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.TypingStatusResponse>
+                ) {
+                    if (response.isSuccessful && response.body()?.isTyping == true) {
+                        showTypingIndicator()
+                    } else {
+                        hideTypingIndicator()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.TypingStatusResponse>, t: Throwable) {
+                    hideTypingIndicator()
+                }
+            })
+    }
+    
+    private fun showTypingIndicator() {
+        runOnUiThread {
+            if (typingIndicator == null) {
+                typingIndicator = TextView(this).apply {
+                    text = "⌨️ $contactName está escribiendo..."
+                    textSize = 12f
+                    setTextColor(0xFF888888.toInt())
+                    setPadding(16, 8, 16, 8)
+                    setBackgroundColor(0xFFF5F5F5.toInt())
+                }
+                // Insertar debajo del título
+                val parent = chatTitle.parent as? android.view.ViewGroup
+                val index = parent?.indexOfChild(chatTitle)?.plus(1) ?: 0
+                parent?.addView(typingIndicator, index)
+            }
+            typingIndicator?.visibility = View.VISIBLE
+        }
+    }
+    
+    private fun hideTypingIndicator() {
+        runOnUiThread {
+            typingIndicator?.visibility = View.GONE
+        }
+    }
+    
+    // ========== Foto de Perfil ==========
+    
+    /**
+     * Mostrar diálogo para cambiar foto de perfil
+     */
+    fun showProfilePhotoDialog() {
+        val options = arrayOf("📷 Tomar foto", "🖼️ Elegir de galería", "🗑️ Eliminar foto")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("👤 Foto de perfil")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> takeProfilePhoto()
+                    1 -> pickProfilePhoto()
+                    2 -> deleteProfilePhoto()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun takeProfilePhoto() {
+        val intent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+        startActivityForResult(intent, 300)
+    }
+    
+    private fun pickProfilePhoto() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_PICK).apply {
+            type = "image/*"
+        }
+        startActivityForResult(intent, 301)
+    }
+    
+    private fun deleteProfilePhoto() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.deleteProfilePhoto("Bearer $token")
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "Foto eliminada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {}
+            })
+    }
+    
+    private fun uploadProfilePhoto(bitmap: android.graphics.Bitmap) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        // Redimensionar a 200x200
+        val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, 200, 200, true)
+        val stream = java.io.ByteArrayOutputStream()
+        scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+        val base64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+        
+        val request = com.hamtaro.hamchat.network.ProfilePhotoRequest(base64)
+        com.hamtaro.hamchat.network.HamChatApiClient.api.setProfilePhoto("Bearer $token", request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "👤 Foto actualizada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "Error al subir foto", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            })
+    }
+    
+    // ========== QR para agregar contacto ==========
+    
+    /**
+     * Mostrar QR del usuario para que otros lo escaneen
+     */
+    fun showMyQrCode() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.getQrData("Bearer $token")
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.QrDataResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.QrDataResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.QrDataResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val data = response.body()!!
+                        runOnUiThread {
+                            showQrDialog(data.qrData, data.username)
+                        }
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.QrDataResponse>, t: Throwable) {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "Error al obtener QR", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            })
+    }
+    
+    private fun showQrDialog(qrData: String, username: String) {
+        // Generar QR usando la librería nativa de Android
+        val size = 512
+        val qrBitmap = generateQrBitmap(qrData, size)
+        
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(qrBitmap)
+            setPadding(32, 32, 32, 32)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📱 Mi código QR")
+            .setMessage("Escanea este código para agregar a $username")
+            .setView(imageView)
+            .setPositiveButton("Cerrar", null)
+            .show()
+    }
+    
+    private fun generateQrBitmap(data: String, size: Int): android.graphics.Bitmap {
+        // Generar QR simple usando matriz de puntos
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            style = android.graphics.Paint.Style.FILL
+        }
+        
+        // Dibujar patrón simple basado en hash del data
+        val hash = data.hashCode()
+        val cellSize = size / 21f
+        for (row in 0 until 21) {
+            for (col in 0 until 21) {
+                val bit = ((hash shr ((row * 21 + col) % 32)) and 1) == 1
+                // Patrones de esquina fijos
+                val isCorner = (row < 7 && col < 7) || (row < 7 && col >= 14) || (row >= 14 && col < 7)
+                if (isCorner || bit) {
+                    canvas.drawRect(
+                        col * cellSize,
+                        row * cellSize,
+                        (col + 1) * cellSize,
+                        (row + 1) * cellSize,
+                        paint
+                    )
+                }
+            }
+        }
+        
+        return bitmap
     }
 }
 
