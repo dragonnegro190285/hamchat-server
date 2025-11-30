@@ -132,6 +132,12 @@ def create_tables() -> None:
     # Actualizar registros existentes
     cur.execute("UPDATE messages SET sent_at = created_at WHERE sent_at IS NULL")
     cur.execute("UPDATE messages SET message_type = 'text' WHERE message_type IS NULL")
+    
+    # Agregar columna de contraseña de recuperación
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN recovery_password TEXT")
+    except:
+        pass
 
     # Device backups - respaldos por dispositivo
     cur.execute(
@@ -319,6 +325,23 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     user_id: int
     token: str
+
+
+class SetRecoveryPasswordRequest(BaseModel):
+    recovery_password: str = Field(..., min_length=4, max_length=50)
+
+
+class RecoverAccountRequest(BaseModel):
+    phone_country_code: str
+    phone_national: str
+    recovery_password: str
+
+
+class RecoverAccountResponse(BaseModel):
+    user_id: int
+    username: str
+    token: str
+    has_backup: bool
 
 
 class SendMessageRequest(BaseModel):
@@ -575,6 +598,106 @@ def login(req: LoginRequest) -> LoginResponse:
     conn.close()
 
     return LoginResponse(user_id=user_id, token=token)
+
+
+@app.post("/api/recovery/set-password")
+def set_recovery_password(req: SetRecoveryPasswordRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Establece o actualiza la contraseña de recuperación"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Hashear la contraseña de recuperación
+    import hashlib
+    password_hash = hashlib.sha256(req.recovery_password.encode()).hexdigest()
+    
+    cur.execute(
+        "UPDATE users SET recovery_password = ? WHERE id = ?",
+        (password_hash, current_user_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    return {"status": "ok", "message": "Contraseña de recuperación establecida"}
+
+
+@app.post("/api/recovery/recover", response_model=RecoverAccountResponse)
+def recover_account(req: RecoverAccountRequest):
+    """Recupera una cuenta usando el teléfono y contraseña de recuperación"""
+    
+    cc, nat, e164 = normalize_phone(req.phone_country_code, req.phone_national)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Buscar usuario por teléfono
+    cur.execute(
+        "SELECT id, username, recovery_password FROM users WHERE phone_e164 = ?",
+        (e164,)
+    )
+    row = cur.fetchone()
+    
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="No existe cuenta con este número")
+    
+    # Verificar contraseña de recuperación
+    if row["recovery_password"] is None:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Esta cuenta no tiene contraseña de recuperación")
+    
+    import hashlib
+    password_hash = hashlib.sha256(req.recovery_password.encode()).hexdigest()
+    
+    if row["recovery_password"] != password_hash:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Contraseña de recuperación incorrecta")
+    
+    user_id = int(row["id"])
+    username = row["username"]
+    
+    # Verificar si tiene respaldos
+    cur.execute("SELECT COUNT(*) as count FROM device_backups WHERE user_id = ?", (user_id,))
+    backup_count = cur.fetchone()["count"]
+    
+    # Generar nuevo token
+    token = str(uuid.uuid4())
+    cur.execute(
+        "INSERT INTO auth_tokens (user_id, token, created_at) VALUES (?, ?, ?)",
+        (user_id, token, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    
+    return RecoverAccountResponse(
+        user_id=user_id,
+        username=username,
+        token=token,
+        has_backup=backup_count > 0
+    )
+
+
+@app.get("/api/recovery/check/{phone_e164}")
+def check_recovery_available(phone_e164: str):
+    """Verifica si un número tiene cuenta y contraseña de recuperación"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        "SELECT id, recovery_password FROM users WHERE phone_e164 = ?",
+        (phone_e164,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    
+    if row is None:
+        return {"exists": False, "has_recovery": False}
+    
+    return {
+        "exists": True,
+        "has_recovery": row["recovery_password"] is not None
+    }
 
 
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
