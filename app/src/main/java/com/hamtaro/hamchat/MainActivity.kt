@@ -40,6 +40,18 @@ import android.text.InputType
 import java.util.UUID
 import com.hamtaro.hamchat.network.LadaCreateRequest
 import com.hamtaro.hamchat.network.LadaDto
+import com.hamtaro.hamchat.workers.WeeklyBackupWorker
+import com.hamtaro.hamchat.workers.BackupInfo
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import android.widget.ArrayAdapter
+import android.widget.Spinner
+import androidx.appcompat.app.AlertDialog
 
 // ContactItem para UI de MainActivity (diferente de model.Contact)
 data class ContactItem(
@@ -120,6 +132,7 @@ class MainActivity : BaseActivity() {
         private const val KEY_CUSTOM_LADAS = "custom_ladas"
         private const val DEFAULT_LADAS_COUNT = 7
         private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
+        private const val STORAGE_PERMISSION_CODE = 1001
     }
 
     private val contacts = listOf(
@@ -581,7 +594,215 @@ class MainActivity : BaseActivity() {
         }
         val username = prefs.getString(KEY_AUTH_USERNAME, null)
         if (token.isNullOrEmpty() || username.isNullOrEmpty()) {
+            // Verificar si hay backups disponibles antes de mostrar registro
+            checkForAvailableBackups()
+        }
+    }
+    
+    private fun checkForAvailableBackups() {
+        // Verificar permiso de almacenamiento primero
+        if (!hasStoragePermission()) {
+            requestStoragePermission()
+            return
+        }
+        
+        // Buscar backups disponibles
+        val backups = WeeklyBackupWorker.listLocalBackups(this)
+        
+        if (backups.isNotEmpty()) {
+            // Hay backups disponibles, mostrar opción de restaurar
+            showBackupRestoreDialog(backups)
+        } else {
+            // No hay backups, continuar con registro normal
             showRegistrationDialog()
+        }
+    }
+    
+    private fun hasStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    
+    private fun requestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:$packageName")
+                startActivityForResult(intent, STORAGE_PERMISSION_CODE)
+            } catch (e: Exception) {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                startActivityForResult(intent, STORAGE_PERMISSION_CODE)
+            }
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE),
+                STORAGE_PERMISSION_CODE
+            )
+        }
+    }
+    
+    private fun showBackupRestoreDialog(backups: List<BackupInfo>) {
+        val context = this
+        
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 8)
+        }
+        
+        val titleText = TextView(context).apply {
+            text = "📦 Se encontraron backups disponibles"
+            textSize = 16f
+            setPadding(0, 0, 0, 16)
+        }
+        container.addView(titleText)
+        
+        val infoText = TextView(context).apply {
+            text = "Selecciona un backup para restaurar tus conversaciones:"
+            setPadding(0, 0, 0, 16)
+        }
+        container.addView(infoText)
+        
+        // Spinner para seleccionar backup
+        val backupOptions = backups.map { backup ->
+            "${backup.getDateFormatted()} - ${backup.messageCount} msgs, ${backup.contactCount} contactos (${backup.getSizeFormatted()})"
+        }
+        
+        val backupSpinner = Spinner(context)
+        val adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item, backupOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        backupSpinner.adapter = adapter
+        container.addView(backupSpinner)
+        
+        AlertDialog.Builder(context)
+            .setTitle("🐹 Restaurar Backup")
+            .setView(container)
+            .setCancelable(false)
+            .setPositiveButton("Restaurar") { _, _ ->
+                val selectedIndex = backupSpinner.selectedItemPosition
+                if (selectedIndex >= 0 && selectedIndex < backups.size) {
+                    restoreSelectedBackup(backups[selectedIndex])
+                }
+            }
+            .setNegativeButton("Registrarse nuevo") { _, _ ->
+                showRegistrationDialog()
+            }
+            .setNeutralButton("🔑 Recuperar cuenta") { _, _ ->
+                showRecoveryDialog()
+            }
+            .show()
+    }
+    
+    private fun restoreSelectedBackup(backup: BackupInfo) {
+        try {
+            val backupData = WeeklyBackupWorker.restoreLocalBackup(this, backup.fileName)
+            
+            if (backupData != null) {
+                // Mostrar información del backup y pedir login
+                val username = backupData.optString("username", "")
+                val phoneE164 = backupData.optString("phone_e164", "")
+                val totalMessages = backupData.optInt("total_messages", 0)
+                val totalContacts = backupData.optInt("total_contacts", 0)
+                
+                AlertDialog.Builder(this)
+                    .setTitle("📦 Backup encontrado")
+                    .setMessage("""
+                        Usuario: $username
+                        Teléfono: $phoneE164
+                        Mensajes: $totalMessages
+                        Contactos: $totalContacts
+                        
+                        Para restaurar este backup, necesitas iniciar sesión con tu cuenta.
+                    """.trimIndent())
+                    .setPositiveButton("Iniciar sesión") { _, _ ->
+                        // Mostrar diálogo de recuperación con el teléfono prellenado
+                        showRecoveryDialogWithPhone(phoneE164)
+                    }
+                    .setNegativeButton("Cancelar") { _, _ ->
+                        showRegistrationDialog()
+                    }
+                    .show()
+            } else {
+                Toast.makeText(this, "Error leyendo backup", Toast.LENGTH_SHORT).show()
+                showRegistrationDialog()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error restaurando backup: ${e.message}", Toast.LENGTH_SHORT).show()
+            showRegistrationDialog()
+        }
+    }
+    
+    private fun showRecoveryDialogWithPhone(phoneE164: String) {
+        // Extraer código de país y número del teléfono E164
+        val countryCode = if (phoneE164.startsWith("+52")) "+52" else "+1"
+        val nationalNumber = phoneE164.removePrefix(countryCode)
+        
+        val context = this
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 8)
+        }
+        
+        val infoText = TextView(context).apply {
+            text = "Ingresa tu contraseña de recuperación para restaurar tu cuenta y backup:"
+            setPadding(0, 0, 0, 16)
+        }
+        container.addView(infoText)
+        
+        val phoneText = TextView(context).apply {
+            text = "Teléfono: $phoneE164"
+            setPadding(0, 0, 0, 8)
+        }
+        container.addView(phoneText)
+        
+        val passwordInput = EditText(context).apply {
+            hint = "Contraseña de recuperación"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        container.addView(passwordInput)
+        
+        AlertDialog.Builder(context)
+            .setTitle("🔑 Recuperar cuenta")
+            .setView(container)
+            .setPositiveButton("Recuperar") { _, _ ->
+                val password = passwordInput.text.toString().trim()
+                if (password.length >= 4) {
+                    performRecovery(countryCode, nationalNumber, password)
+                } else {
+                    Toast.makeText(context, "La contraseña debe tener al menos 4 caracteres", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                showRegistrationDialog()
+            }
+            .show()
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == STORAGE_PERMISSION_CODE) {
+            // Verificar permiso después de volver de configuración
+            if (hasStoragePermission()) {
+                checkForAvailableBackups()
+            } else {
+                // Sin permiso, continuar con registro normal
+                showRegistrationDialog()
+            }
+        }
+    }
+    
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                checkForAvailableBackups()
+            } else {
+                // Sin permiso, continuar con registro normal
+                showRegistrationDialog()
+            }
         }
     }
 

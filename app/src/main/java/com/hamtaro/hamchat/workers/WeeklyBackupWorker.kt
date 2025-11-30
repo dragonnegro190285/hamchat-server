@@ -24,8 +24,8 @@ class WeeklyBackupWorker(
     companion object {
         private const val TAG = "WeeklyBackupWorker"
         private const val WORK_NAME = "weekly_backup_work"
-        private const val BACKUP_FOLDER = "hamchat_backups"
-        private const val MAX_LOCAL_BACKUPS = 12 // Mantener últimos 3 meses de backups semanales
+        private const val BACKUP_FOLDER = "HamChat_Backups" // Carpeta en almacenamiento externo
+        private const val MAX_LOCAL_BACKUPS = 3 // Mantener solo últimos 3 backups
         
         /**
          * Programar backup semanal automático
@@ -99,14 +99,25 @@ class WeeklyBackupWorker(
         }
         
         /**
-         * Obtener carpeta de backups
+         * Obtener carpeta de backups en almacenamiento externo (persiste después de desinstalar)
          */
         fun getBackupFolder(context: Context): File {
-            val folder = File(context.filesDir, BACKUP_FOLDER)
+            // Usar almacenamiento externo público para que persista después de desinstalar
+            val externalDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOCUMENTS
+            )
+            val folder = File(externalDir, BACKUP_FOLDER)
             if (!folder.exists()) {
                 folder.mkdirs()
             }
             return folder
+        }
+        
+        /**
+         * Verificar si existen backups disponibles (para mostrar al reinstalar)
+         */
+        fun hasAvailableBackups(context: Context): Boolean {
+            return listLocalBackups(context).isNotEmpty()
         }
         
         /**
@@ -143,9 +154,24 @@ class WeeklyBackupWorker(
         }
         
         /**
-         * Restaurar backup local
+         * Restaurar backup local - devuelve JSONObject completo
          */
-        fun restoreLocalBackup(context: Context, fileName: String): BackupData? {
+        fun restoreLocalBackup(context: Context, fileName: String): JSONObject? {
+            return try {
+                val file = File(getBackupFolder(context), fileName)
+                if (file.exists()) {
+                    JSONObject(file.readText())
+                } else null
+            } catch (e: Exception) {
+                Log.e(TAG, "Error restaurando backup: ${e.message}")
+                null
+            }
+        }
+        
+        /**
+         * Restaurar backup local como BackupData
+         */
+        fun restoreLocalBackupData(context: Context, fileName: String): BackupData? {
             return try {
                 val file = File(getBackupFolder(context), fileName)
                 if (file.exists()) {
@@ -153,7 +179,7 @@ class WeeklyBackupWorker(
                     BackupData(
                         messages = json.optJSONArray("messages") ?: JSONArray(),
                         contacts = json.optJSONArray("contacts") ?: JSONArray(),
-                        createdAt = json.optString("created_at", "")
+                        createdAt = json.optString("backup_date", "")
                     )
                 } else null
             } catch (e: Exception) {
