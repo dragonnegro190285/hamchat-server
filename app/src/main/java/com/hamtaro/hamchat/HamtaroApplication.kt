@@ -11,6 +11,7 @@ import com.hamtaro.hamchat.security.SecureLogger
 import com.hamtaro.hamchat.server.HamChatServerService
 import com.hamtaro.hamchat.utils.InactivityManager
 import com.hamtaro.hamchat.workers.InboxWorker
+import com.hamtaro.hamchat.workers.WeeklyBackupWorker
 import java.util.concurrent.TimeUnit
 
 /**
@@ -59,6 +60,13 @@ class HamtaroApplication : Application() {
                 ExistingPeriodicWorkPolicy.KEEP,
                 workRequest
             )
+        } catch (_: Exception) {
+        }
+        
+        // Programar backup semanal automático
+        try {
+            WeeklyBackupWorker.schedule(this)
+            SecureLogger.i("Weekly backup scheduled")
         } catch (_: Exception) {
         }
     }

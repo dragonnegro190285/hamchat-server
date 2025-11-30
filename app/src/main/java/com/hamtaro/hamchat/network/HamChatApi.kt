@@ -1,5 +1,6 @@
 package com.hamtaro.hamchat.network
 
+import com.google.gson.annotations.SerializedName
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Call
@@ -409,7 +410,36 @@ interface HamChatApi {
     fun checkRecoveryAvailable(
         @retrofit2.http.Path("phone_e164") phoneE164: String
     ): Call<RecoveryCheckResponse>
+    
+    // ========== Cleanup endpoints ==========
+    
+    @POST("cleanup/messages")
+    fun cleanupMessages(
+        @Header("Authorization") token: String,
+        @Body body: CleanupRequest
+    ): Call<CleanupResponse>
+    
+    @GET("cleanup/stats")
+    fun getCleanupStats(
+        @Header("Authorization") token: String
+    ): Call<CleanupStatsResponse>
 }
+
+// Cleanup models
+data class CleanupRequest(
+    @SerializedName("days_to_keep") val daysToKeep: Int = 7
+)
+
+data class CleanupResponse(
+    @SerializedName("deleted_messages") val deletedMessages: Int,
+    @SerializedName("remaining_messages") val remainingMessages: Int,
+    @SerializedName("cleanup_date") val cleanupDate: String
+)
+
+data class CleanupStatsResponse(
+    @SerializedName("total") val total: Int,
+    @SerializedName("by_age") val byAge: Map<String, Int>
+)
 
 object HamChatApiClient {
 
