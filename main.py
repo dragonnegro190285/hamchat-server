@@ -113,8 +113,21 @@ def create_tables() -> None:
         cur.execute("ALTER TABLE messages ADD COLUMN local_id TEXT")
     except:
         pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN message_type TEXT DEFAULT 'text'")
+    except:
+        pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN audio_data TEXT")  # Base64 encoded audio
+    except:
+        pass
+    try:
+        cur.execute("ALTER TABLE messages ADD COLUMN audio_duration INTEGER DEFAULT 0")  # Duration in seconds
+    except:
+        pass
     # Actualizar registros existentes
     cur.execute("UPDATE messages SET sent_at = created_at WHERE sent_at IS NULL")
+    cur.execute("UPDATE messages SET message_type = 'text' WHERE message_type IS NULL")
 
     # Contacts (server-side address book)
     cur.execute(
@@ -292,6 +305,9 @@ class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=1000)
     local_id: Optional[str] = None  # ID local para evitar duplicados
     sent_at: Optional[str] = None   # Timestamp de envío del cliente
+    message_type: str = "text"      # "text" o "voice"
+    audio_data: Optional[str] = None  # Base64 encoded audio para mensajes de voz
+    audio_duration: int = 0         # Duración en segundos
 
 
 class MessageResponse(BaseModel):
@@ -304,6 +320,9 @@ class MessageResponse(BaseModel):
     received_at: Optional[str] = None
     is_delivered: bool = False
     local_id: Optional[str] = None
+    message_type: str = "text"
+    audio_data: Optional[str] = None
+    audio_duration: int = 0
 
 
 class MarkDeliveredRequest(BaseModel):
@@ -739,10 +758,10 @@ def send_message(req: SendMessageRequest, current_user_id: int = Depends(get_use
     
     cur.execute(
         """
-        INSERT INTO messages (sender_id, recipient_id, content, created_at, sent_at, local_id, is_delivered)
-        VALUES (?, ?, ?, ?, ?, ?, 0)
+        INSERT INTO messages (sender_id, recipient_id, content, created_at, sent_at, local_id, is_delivered, message_type, audio_data, audio_duration)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         """,
-        (current_user_id, req.recipient_id, req.content, created_at, sent_at, req.local_id),
+        (current_user_id, req.recipient_id, req.content, created_at, sent_at, req.local_id, req.message_type, req.audio_data, req.audio_duration),
     )
     conn.commit()
     msg_id = cur.lastrowid
@@ -757,6 +776,9 @@ def send_message(req: SendMessageRequest, current_user_id: int = Depends(get_use
         sent_at=sent_at,
         is_delivered=False,
         local_id=req.local_id,
+        message_type=req.message_type,
+        audio_data=req.audio_data,
+        audio_duration=req.audio_duration,
     )
 
 
@@ -767,7 +789,8 @@ def get_messages(with_user_id: int, limit: int = 50, current_user_id: int = Depe
 
     cur.execute(
         """
-        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id
+        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id,
+               message_type, audio_data, audio_duration
         FROM messages
         WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
         ORDER BY id DESC
@@ -791,6 +814,9 @@ def get_messages(with_user_id: int, limit: int = 50, current_user_id: int = Depe
                 received_at=r["received_at"],
                 is_delivered=bool(r["is_delivered"]) if r["is_delivered"] else False,
                 local_id=r["local_id"],
+                message_type=r["message_type"] or "text",
+                audio_data=r["audio_data"],
+                audio_duration=r["audio_duration"] or 0,
             )
         )
     return result
@@ -803,7 +829,8 @@ def get_messages_since(with_user_id: int, since_id: int = 0, current_user_id: in
 
     cur.execute(
         """
-        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id
+        SELECT id, sender_id, recipient_id, content, created_at, sent_at, received_at, is_delivered, local_id,
+               message_type, audio_data, audio_duration
         FROM messages
         WHERE id > ?
           AND ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))
@@ -827,6 +854,9 @@ def get_messages_since(with_user_id: int, since_id: int = 0, current_user_id: in
                 received_at=r["received_at"],
                 is_delivered=bool(r["is_delivered"]) if r["is_delivered"] else False,
                 local_id=r["local_id"],
+                message_type=r["message_type"] or "text",
+                audio_data=r["audio_data"],
+                audio_duration=r["audio_duration"] or 0,
             )
         )
     return result
