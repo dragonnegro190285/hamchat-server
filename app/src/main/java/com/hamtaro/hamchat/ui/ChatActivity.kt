@@ -545,26 +545,35 @@ class ChatActivity : BaseActivity() {
         // Contenedor principal con alineación según remitente
         val outerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(8, 4, 8, 4)
+            setPadding(12, 6, 12, 6)
             gravity = if (isMyMessage) android.view.Gravity.END else android.view.Gravity.START
         }
         
-        // Burbuja del mensaje
+        // Calcular máximo ancho (75% de pantalla)
+        val maxBubbleWidth = (resources.displayMetrics.widthPixels * 0.75).toInt()
+        
+        // Burbuja del mensaje con bordes redondeados
         val bubbleLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(12, 8, 12, 6)
             
-            // Estilo de burbuja según remitente (colores propios de Ham-Chat)
-            val bgColor = if (isMyMessage) 0xFFFFE4B5.toInt() else 0xFFF0F0F0.toInt() // Naranja claro vs gris
-            setBackgroundColor(bgColor)
+            // Usar drawable con bordes redondeados
+            val bubbleDrawable = if (isMyMessage) {
+                R.drawable.bubble_sent
+            } else {
+                R.drawable.bubble_received
+            }
+            setBackgroundResource(bubbleDrawable)
             
-            // Máximo 80% del ancho de pantalla
-            val maxWidth = (resources.displayMetrics.widthPixels * 0.8).toInt()
+            // Configurar tamaño máximo
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                this.width = LinearLayout.LayoutParams.WRAP_CONTENT
+                if (isMyMessage) {
+                    marginStart = 48 // Espacio a la izquierda para mensajes enviados
+                } else {
+                    marginEnd = 48 // Espacio a la derecha para mensajes recibidos
+                }
             }
         }
         
