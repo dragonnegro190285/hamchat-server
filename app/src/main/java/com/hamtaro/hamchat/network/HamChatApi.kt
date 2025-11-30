@@ -449,6 +449,31 @@ interface HamChatApi {
         @Header("Authorization") token: String,
         @retrofit2.http.Path("notification_id") notificationId: Int
     ): Call<Map<String, Any>>
+    
+    // ========== Contact restore requests ==========
+    
+    @POST("contacts/restore-request")
+    fun sendRestoreRequest(
+        @Header("Authorization") token: String,
+        @Body body: RestoreContactRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("contacts/restore-requests")
+    fun getRestoreRequests(
+        @Header("Authorization") token: String
+    ): Call<List<ContactRestoreRequestDto>>
+    
+    @POST("contacts/restore-requests/respond")
+    fun respondToRestoreRequest(
+        @Header("Authorization") token: String,
+        @Body body: RespondRestoreRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("contacts/restore-requests/status/{target_user_id}")
+    fun checkRestoreRequestStatus(
+        @Header("Authorization") token: String,
+        @retrofit2.http.Path("target_user_id") targetUserId: Int
+    ): Call<RestoreRequestStatus>
 }
 
 // Contact deletion models
@@ -462,6 +487,32 @@ data class ContactDeletedNotification(
     @SerializedName("deleted_by_username") val deletedByUsername: String,
     @SerializedName("deleted_by_phone") val deletedByPhone: String,
     @SerializedName("created_at") val createdAt: String
+)
+
+// Contact restore models
+data class RestoreContactRequest(
+    @SerializedName("target_user_id") val targetUserId: Int
+)
+
+data class ContactRestoreRequestDto(
+    @SerializedName("id") val id: Int,
+    @SerializedName("requester_user_id") val requesterUserId: Int,
+    @SerializedName("requester_username") val requesterUsername: String,
+    @SerializedName("requester_phone") val requesterPhone: String,
+    @SerializedName("created_at") val createdAt: String,
+    @SerializedName("status") val status: String
+)
+
+data class RespondRestoreRequest(
+    @SerializedName("request_id") val requestId: Int,
+    @SerializedName("accept") val accept: Boolean
+)
+
+data class RestoreRequestStatus(
+    @SerializedName("has_request") val hasRequest: Boolean,
+    @SerializedName("request_id") val requestId: Int? = null,
+    @SerializedName("status") val status: String? = null,
+    @SerializedName("responded_at") val respondedAt: String? = null
 )
 
 // Full Backup models

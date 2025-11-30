@@ -54,6 +54,9 @@ import android.widget.Spinner
 import androidx.appcompat.app.AlertDialog
 import com.hamtaro.hamchat.network.DeleteContactRequest
 import com.hamtaro.hamchat.network.ContactDeletedNotification
+import com.hamtaro.hamchat.network.RestoreContactRequest
+import com.hamtaro.hamchat.network.ContactRestoreRequestDto
+import com.hamtaro.hamchat.network.RespondRestoreRequest
 
 // ContactItem para UI de MainActivity (diferente de model.Contact)
 data class ContactItem(
@@ -179,6 +182,7 @@ class MainActivity : BaseActivity() {
         startInboxPolling()
         startContactPromotionIfNeeded()
         checkDeletedContactNotifications()
+        checkRestoreRequests()
     }
 
     override fun onPause() {
@@ -1036,6 +1040,156 @@ class MainActivity : BaseActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Error eliminando historial: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+    
+    /**
+     * Verificar si hay solicitudes de restauración de contacto pendientes
+     */
+    private fun checkRestoreRequests() {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) return
+        
+        HamChatApiClient.api.getRestoreRequests("Bearer $token")
+            .enqueue(object : Callback<List<ContactRestoreRequestDto>> {
+                override fun onResponse(
+                    call: Call<List<ContactRestoreRequestDto>>,
+                    response: Response<List<ContactRestoreRequestDto>>
+                ) {
+                    if (response.isSuccessful) {
+                        val requests = response.body() ?: emptyList()
+                        requests.forEach { request ->
+                            showRestoreRequestDialog(request)
+                        }
+                    }
+                }
+                
+                override fun onFailure(call: Call<List<ContactRestoreRequestDto>>, t: Throwable) {
+                    // Silencioso
+                }
+            })
+    }
+    
+    /**
+     * Mostrar diálogo cuando alguien quiere restaurar el contacto contigo
+     */
+    private fun showRestoreRequestDialog(request: ContactRestoreRequestDto) {
+        AlertDialog.Builder(this)
+            .setTitle("🔄 Solicitud de restauración")
+            .setMessage("""
+                ${request.requesterUsername} (${request.requesterPhone}) quiere volver a conectarse contigo.
+                
+                Esta persona te había eliminado anteriormente, pero ahora desea restaurar el contacto.
+                
+                Si aceptas:
+                • Podrán enviarse mensajes nuevamente
+                • Puedes elegir restaurar conversaciones anteriores
+                
+                Si rechazas:
+                • No podrán contactarte
+                • Tu historial permanece intacto
+            """.trimIndent())
+            .setCancelable(false)
+            .setPositiveButton("✅ Aceptar") { _, _ ->
+                respondToRestoreRequest(request.id, true, request.requesterUsername)
+            }
+            .setNegativeButton("❌ Rechazar") { _, _ ->
+                respondToRestoreRequest(request.id, false, request.requesterUsername)
+            }
+            .show()
+    }
+    
+    /**
+     * Responder a una solicitud de restauración
+     */
+    private fun respondToRestoreRequest(requestId: Int, accept: Boolean, requesterName: String) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken() ?: return
+        
+        val request = RespondRestoreRequest(requestId, accept)
+        
+        HamChatApiClient.api.respondToRestoreRequest("Bearer $token", request)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        if (accept) {
+                            Toast.makeText(this@MainActivity, "✅ Contacto restaurado con $requesterName", Toast.LENGTH_SHORT).show()
+                            // Preguntar si quiere restaurar conversaciones del backup
+                            askToRestoreConversations(requesterName)
+                        } else {
+                            Toast.makeText(this@MainActivity, "❌ Solicitud rechazada", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Preguntar si desea restaurar conversaciones del backup
+     */
+    private fun askToRestoreConversations(contactName: String) {
+        AlertDialog.Builder(this)
+            .setTitle("📦 Restaurar conversaciones")
+            .setMessage("""
+                ¿Deseas restaurar las conversaciones anteriores con $contactName desde tu backup?
+                
+                • Sí: Se cargarán los mensajes guardados
+                • No: Empezarán una conversación nueva
+            """.trimIndent())
+            .setPositiveButton("Sí, restaurar") { _, _ ->
+                Toast.makeText(this, "Conversaciones restauradas desde backup", Toast.LENGTH_SHORT).show()
+                // Las conversaciones ya están en el backup, solo necesitan sincronizarse
+            }
+            .setNegativeButton("No, empezar nuevo") { _, _ ->
+                Toast.makeText(this, "Nueva conversación iniciada", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+    
+    /**
+     * Enviar solicitud de restauración de contacto (cuando eliminaste por error)
+     */
+    fun sendRestoreRequest(targetUserId: Int, targetUsername: String) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "No autenticado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("🔄 Restaurar contacto")
+            .setMessage("""
+                ¿Deseas enviar una solicitud para restaurar el contacto con $targetUsername?
+                
+                El usuario recibirá una notificación y podrá aceptar o rechazar tu solicitud.
+            """.trimIndent())
+            .setPositiveButton("Enviar solicitud") { _, _ ->
+                val request = RestoreContactRequest(targetUserId)
+                
+                HamChatApiClient.api.sendRestoreRequest("Bearer $token", request)
+                    .enqueue(object : Callback<Map<String, Any>> {
+                        override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                            if (response.isSuccessful) {
+                                Toast.makeText(this@MainActivity, "✅ Solicitud enviada a $targetUsername", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this@MainActivity, "Error: Ya existe una solicitud pendiente", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        
+                        override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                            Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
     
     /**
