@@ -252,28 +252,33 @@ def create_tables() -> None:
     create_test_users()
 
 
-# Números de prueba predefinidos
+# Números de prueba predefinidos con contraseña de recuperación
 TEST_USERS = [
-    {"username": "alvaro puebla", "password": "test123", "country_code": "+52", "national": "2228165690"},
-    {"username": "alvaro tulancingo", "password": "test123", "country_code": "+52", "national": "7753574534"},
+    {"username": "alvaro puebla", "password": "test123", "country_code": "+52", "national": "2228165690", "recovery": "190285"},
+    {"username": "alvaro tulancingo", "password": "test123", "country_code": "+52", "national": "7753574534", "recovery": "190285"},
 ]
 
 
 def create_test_users() -> None:
-    """Crea usuarios de prueba si no existen"""
+    """Crea usuarios de prueba si no existen y actualiza contraseña de recuperación"""
+    import hashlib
     conn = get_db()
     cur = conn.cursor()
     
     for user in TEST_USERS:
         phone_e164 = user["country_code"] + user["national"]
+        recovery_hash = hashlib.sha256(user["recovery"].encode()).hexdigest()
+        
         # Verificar si ya existe
         cur.execute("SELECT id FROM users WHERE phone_e164 = ?", (phone_e164,))
-        if cur.fetchone() is None:
+        existing = cur.fetchone()
+        
+        if existing is None:
             # Crear usuario de prueba
             cur.execute(
                 """
-                INSERT INTO users (username, password_hash, phone_country_code, phone_national, phone_e164, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, password_hash, phone_country_code, phone_national, phone_e164, created_at, recovery_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user["username"],
@@ -282,9 +287,18 @@ def create_test_users() -> None:
                     user["national"],
                     phone_e164,
                     now_iso(),
+                    recovery_hash,
                 ),
             )
             print(f"✅ Usuario de prueba creado: {phone_e164}")
+        else:
+            # Actualizar contraseña de recuperación si no tiene
+            cur.execute(
+                "UPDATE users SET recovery_password = ? WHERE phone_e164 = ? AND (recovery_password IS NULL OR recovery_password = '')",
+                (recovery_hash, phone_e164)
+            )
+            if cur.rowcount > 0:
+                print(f"🔑 Contraseña de recuperación actualizada: {phone_e164}")
     
     conn.commit()
     conn.close()
