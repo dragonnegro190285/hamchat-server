@@ -177,6 +177,17 @@ class ChatActivity : BaseActivity() {
     private val konamiCode = listOf("↑", "↑", "↓", "↓", "←", "→", "←", "→", "B", "A")
     private val konamiInput = mutableListOf<String>()
     private var lastKonamiInputTime = 0L
+    
+    // Emojis tipográficos
+    private var emojiButton: Button? = null
+    private val defaultTextEmojis = listOf(
+        "n.n", "n_n", "^.^", "^_^", ":3", ":D", ":)", ":(", ";)", "xD",
+        "T.T", "T_T", ">.<", ">_<", "o.o", "O.O", "o_O", "O_o", "-.-", "-_-",
+        "uwu", "UwU", "owo", "OwO", ":P", ":p", "XD", "xd", ":v", ":')",
+        "(:", "):", "c:", ":c", "ewe", "7w7", "7u7", ":B", "B)", "8)",
+        "<3", "</3", ":*", "*-*", "*.* ", "@.@", "$.$", "#.#", "=)", "=(",
+        "¬¬", "¬.¬", "e.e", "e_e", "u.u", "u_u", "._.", "._.U", ":'(", ":'D"
+    )
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -228,6 +239,9 @@ class ChatActivity : BaseActivity() {
             
             // Configurar botón de foto
             setupPhotoButton()
+            
+            // Configurar botón de emojis tipográficos
+            setupEmojiButton()
 
             // Configure UI based on chat type
             if (isPrivateChat) {
@@ -3078,6 +3092,214 @@ class ChatActivity : BaseActivity() {
                 prefs.edit().remove("saved_messages").apply()
                 Toast.makeText(this, "Colección limpiada", Toast.LENGTH_SHORT).show()
             }
+            .show()
+    }
+    
+    // ========== Emojis Tipográficos ==========
+    
+    /**
+     * Configurar botón de emojis tipográficos
+     */
+    private fun setupEmojiButton() {
+        // Crear botón dinámicamente
+        emojiButton = Button(this).apply {
+            text = "n.n"
+            textSize = 11f
+            setPadding(12, 4, 12, 4)
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+        }
+        
+        // Insertar antes del botón de enviar
+        val parent = sendButton.parent as? android.view.ViewGroup
+        val sendIndex = parent?.indexOfChild(sendButton) ?: 0
+        parent?.addView(emojiButton, sendIndex)
+        
+        emojiButton?.setOnClickListener {
+            showTextEmojiPicker()
+        }
+    }
+    
+    /**
+     * Obtener emojis personalizados guardados
+     */
+    private fun getCustomTextEmojis(): MutableList<String> {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val saved = prefs.getStringSet("custom_text_emojis", emptySet()) ?: emptySet()
+        return saved.toMutableList()
+    }
+    
+    /**
+     * Guardar emoji personalizado
+     */
+    private fun saveCustomTextEmoji(emoji: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val current = getCustomTextEmojis().toMutableSet()
+        current.add(emoji)
+        prefs.edit().putStringSet("custom_text_emojis", current).apply()
+    }
+    
+    /**
+     * Eliminar emoji personalizado
+     */
+    private fun deleteCustomTextEmoji(emoji: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val current = getCustomTextEmojis().toMutableSet()
+        current.remove(emoji)
+        prefs.edit().putStringSet("custom_text_emojis", current).apply()
+    }
+    
+    /**
+     * Mostrar selector de emojis tipográficos
+     */
+    private fun showTextEmojiPicker() {
+        val customEmojis = getCustomTextEmojis()
+        val allEmojis = customEmojis + defaultTextEmojis
+        
+        // Crear grid de emojis
+        val gridLayout = android.widget.GridLayout(this).apply {
+            columnCount = 5
+            setPadding(16, 16, 16, 16)
+        }
+        
+        val scrollView = ScrollView(this).apply {
+            addView(gridLayout)
+        }
+        
+        for (emoji in allEmojis) {
+            val isCustom = customEmojis.contains(emoji)
+            
+            val emojiButton = TextView(this).apply {
+                text = emoji
+                textSize = 16f
+                setPadding(16, 12, 16, 12)
+                gravity = android.view.Gravity.CENTER
+                setBackgroundResource(android.R.drawable.btn_default)
+                
+                // Marcar personalizados con fondo diferente
+                if (isCustom) {
+                    setBackgroundColor(0xFFE3F2FD.toInt())
+                }
+                
+                layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                    columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                    setMargins(4, 4, 4, 4)
+                }
+            }
+            
+            emojiButton.setOnClickListener {
+                insertTextEmoji(emoji)
+            }
+            
+            // Long press para eliminar personalizados
+            if (isCustom) {
+                emojiButton.setOnLongClickListener {
+                    confirmDeleteCustomEmoji(emoji)
+                    true
+                }
+            }
+            
+            gridLayout.addView(emojiButton)
+        }
+        
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("n.n Emojis tipográficos")
+            .setView(scrollView)
+            .setPositiveButton("Cerrar", null)
+            .setNeutralButton("➕ Crear nuevo") { _, _ ->
+                showCreateCustomEmojiDialog()
+            }
+            .create()
+        
+        dialog.show()
+    }
+    
+    /**
+     * Insertar emoji en el campo de texto
+     */
+    private fun insertTextEmoji(emoji: String) {
+        val currentText = messageEditText.text.toString()
+        val cursorPos = messageEditText.selectionStart
+        
+        val newText = if (cursorPos >= 0) {
+            currentText.substring(0, cursorPos) + emoji + currentText.substring(cursorPos)
+        } else {
+            currentText + emoji
+        }
+        
+        messageEditText.setText(newText)
+        messageEditText.setSelection(cursorPos + emoji.length)
+    }
+    
+    /**
+     * Mostrar diálogo para crear emoji personalizado
+     */
+    private fun showCreateCustomEmojiDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+        }
+        
+        val input = EditText(this).apply {
+            hint = "Escribe tu emoji (ej: >.< , uwu, :3)"
+            filters = arrayOf(android.text.InputFilter.LengthFilter(10))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        
+        val previewLabel = TextView(this).apply {
+            text = "Vista previa:"
+            setPadding(0, 16, 0, 4)
+        }
+        
+        val preview = TextView(this).apply {
+            text = ""
+            textSize = 24f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 8, 0, 16)
+        }
+        
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                preview.text = s?.toString() ?: ""
+            }
+        })
+        
+        container.addView(input)
+        container.addView(previewLabel)
+        container.addView(preview)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("➕ Crear emoji personalizado")
+            .setView(container)
+            .setPositiveButton("Guardar") { _, _ ->
+                val emoji = input.text.toString().trim()
+                if (emoji.isNotEmpty()) {
+                    saveCustomTextEmoji(emoji)
+                    Toast.makeText(this, "✅ Emoji '$emoji' guardado", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Confirmar eliminación de emoji personalizado
+     */
+    private fun confirmDeleteCustomEmoji(emoji: String) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🗑️ Eliminar emoji")
+            .setMessage("¿Eliminar '$emoji' de tus emojis personalizados?")
+            .setPositiveButton("Eliminar") { _, _ ->
+                deleteCustomTextEmoji(emoji)
+                Toast.makeText(this, "Emoji eliminado", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
             .show()
     }
     
