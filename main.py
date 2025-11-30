@@ -899,6 +899,106 @@ def mark_messages_delivered(req: MarkDeliveredRequest, current_user_id: int = De
     return {"marked": marked, "received_at": received_at}
 
 
+# ========== Sistema de Relay de Multimedia ==========
+
+# Almacenamiento temporal en memoria (en producción usar Redis o similar)
+media_relay_storage: dict = {}  # {message_local_id: {"data": base64, "sender_id": int, "created_at": str}}
+
+class MediaUploadRequest(BaseModel):
+    message_local_id: str
+    recipient_id: int
+    media_type: str  # "voice" o "image"
+    media_data: str  # Base64 encoded
+
+class MediaDownloadResponse(BaseModel):
+    message_local_id: str
+    media_type: str
+    media_data: str
+    sender_id: int
+
+@app.post("/api/media/upload")
+def upload_media(req: MediaUploadRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Sube multimedia temporalmente al servidor para que el receptor la descargue"""
+    
+    # Limitar tamaño (max 5MB en base64 ≈ 3.75MB real)
+    if len(req.media_data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Archivo muy grande (max 5MB)")
+    
+    # Guardar en almacenamiento temporal
+    media_relay_storage[req.message_local_id] = {
+        "data": req.media_data,
+        "sender_id": current_user_id,
+        "recipient_id": req.recipient_id,
+        "media_type": req.media_type,
+        "created_at": now_iso()
+    }
+    
+    # Limpiar archivos viejos (más de 24 horas)
+    cleanup_old_media()
+    
+    return {"status": "uploaded", "message_local_id": req.message_local_id}
+
+@app.get("/api/media/download/{message_local_id}")
+def download_media(message_local_id: str, current_user_id: int = Depends(get_user_id_from_token)):
+    """Descarga multimedia y la elimina del servidor"""
+    
+    if message_local_id not in media_relay_storage:
+        raise HTTPException(status_code=404, detail="Multimedia no encontrada o ya descargada")
+    
+    media = media_relay_storage[message_local_id]
+    
+    # Verificar que el usuario es el destinatario
+    if media["recipient_id"] != current_user_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    
+    # Obtener datos
+    response = MediaDownloadResponse(
+        message_local_id=message_local_id,
+        media_type=media["media_type"],
+        media_data=media["data"],
+        sender_id=media["sender_id"]
+    )
+    
+    # Eliminar del almacenamiento temporal
+    del media_relay_storage[message_local_id]
+    
+    return response
+
+@app.get("/api/media/pending")
+def get_pending_media(current_user_id: int = Depends(get_user_id_from_token)):
+    """Obtiene lista de multimedia pendiente para el usuario"""
+    
+    pending = []
+    for local_id, media in media_relay_storage.items():
+        if media["recipient_id"] == current_user_id:
+            pending.append({
+                "message_local_id": local_id,
+                "media_type": media["media_type"],
+                "sender_id": media["sender_id"],
+                "created_at": media["created_at"]
+            })
+    
+    return {"pending": pending, "count": len(pending)}
+
+def cleanup_old_media():
+    """Elimina multimedia con más de 24 horas"""
+    from datetime import datetime, timedelta
+    
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    to_delete = []
+    
+    for local_id, media in media_relay_storage.items():
+        try:
+            created = datetime.fromisoformat(media["created_at"].replace("Z", "+00:00"))
+            if created.replace(tzinfo=None) < cutoff:
+                to_delete.append(local_id)
+        except:
+            pass
+    
+    for local_id in to_delete:
+        del media_relay_storage[local_id]
+
+
 @app.get("/api/contacts", response_model=List[ContactResponse])
 def list_contacts(current_user_id: int = Depends(get_user_id_from_token)) -> List[ContactResponse]:
     conn = get_db()
