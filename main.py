@@ -189,6 +189,21 @@ def create_tables() -> None:
         """
     )
     
+    # Contactos bloqueados
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blocked_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blocker_user_id INTEGER NOT NULL,
+            blocked_user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(blocker_user_id, blocked_user_id),
+            FOREIGN KEY(blocker_user_id) REFERENCES users(id),
+            FOREIGN KEY(blocked_user_id) REFERENCES users(id)
+        );
+        """
+    )
+    
     # Solicitudes de restauración de contacto
     cur.execute(
         """
@@ -1309,6 +1324,174 @@ def check_restore_request_status(
     }
 
 
+# ---------- Block/Unblock contacts ----------
+
+
+class BlockContactRequest(BaseModel):
+    user_id: int
+
+
+class BlockedContactDto(BaseModel):
+    id: int
+    blocked_user_id: int
+    blocked_username: str
+    blocked_phone: str
+    created_at: str
+
+
+@app.post("/api/contacts/block")
+def block_contact(
+    req: BlockContactRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Bloquear un contacto. No podrán enviarse mensajes entre sí.
+    Los chats existentes se mantienen intactos.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario a bloquear existe
+    cur.execute("SELECT id, username FROM users WHERE id = ?", (req.user_id,))
+    user_to_block = cur.fetchone()
+    if not user_to_block:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Verificar si ya está bloqueado
+    cur.execute(
+        "SELECT id FROM blocked_contacts WHERE blocker_user_id = ? AND blocked_user_id = ?",
+        (current_user_id, req.user_id)
+    )
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Usuario ya está bloqueado")
+    
+    # Bloquear
+    cur.execute(
+        """
+        INSERT INTO blocked_contacts (blocker_user_id, blocked_user_id, created_at)
+        VALUES (?, ?, ?)
+        """,
+        (current_user_id, req.user_id, now_iso())
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"🚫 Usuario {current_user_id} bloqueó a {user_to_block['username']}")
+    
+    return {
+        "success": True,
+        "message": f"Usuario {user_to_block['username']} bloqueado"
+    }
+
+
+@app.post("/api/contacts/unblock")
+def unblock_contact(
+    req: BlockContactRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Desbloquear un contacto. Podrán volver a enviarse mensajes.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario existe
+    cur.execute("SELECT username FROM users WHERE id = ?", (req.user_id,))
+    user_row = cur.fetchone()
+    if not user_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Desbloquear
+    cur.execute(
+        "DELETE FROM blocked_contacts WHERE blocker_user_id = ? AND blocked_user_id = ?",
+        (current_user_id, req.user_id)
+    )
+    
+    deleted = cur.rowcount > 0
+    
+    conn.commit()
+    conn.close()
+    
+    if deleted:
+        print(f"✅ Usuario {current_user_id} desbloqueó a {user_row['username']}")
+        return {"success": True, "message": f"Usuario {user_row['username']} desbloqueado"}
+    else:
+        return {"success": False, "message": "El usuario no estaba bloqueado"}
+
+
+@app.get("/api/contacts/blocked", response_model=List[BlockedContactDto])
+def get_blocked_contacts(
+    current_user_id: int = Depends(get_user_id_from_token)
+) -> List[BlockedContactDto]:
+    """
+    Obtener lista de contactos bloqueados.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT bc.id, bc.blocked_user_id, u.username, u.phone_e164, bc.created_at
+        FROM blocked_contacts bc
+        JOIN users u ON u.id = bc.blocked_user_id
+        WHERE bc.blocker_user_id = ?
+        ORDER BY bc.created_at DESC
+        """,
+        (current_user_id,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        BlockedContactDto(
+            id=r["id"],
+            blocked_user_id=r["blocked_user_id"],
+            blocked_username=r["username"],
+            blocked_phone=r["phone_e164"],
+            created_at=r["created_at"]
+        )
+        for r in rows
+    ]
+
+
+@app.get("/api/contacts/block-status/{user_id}")
+def check_block_status(
+    user_id: int,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Verificar el estado de bloqueo entre dos usuarios.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar si yo lo bloqueé
+    cur.execute(
+        "SELECT id FROM blocked_contacts WHERE blocker_user_id = ? AND blocked_user_id = ?",
+        (current_user_id, user_id)
+    )
+    i_blocked_them = cur.fetchone() is not None
+    
+    # Verificar si él me bloqueó
+    cur.execute(
+        "SELECT id FROM blocked_contacts WHERE blocker_user_id = ? AND blocked_user_id = ?",
+        (user_id, current_user_id)
+    )
+    they_blocked_me = cur.fetchone() is not None
+    
+    conn.close()
+    
+    return {
+        "i_blocked_them": i_blocked_them,
+        "they_blocked_me": they_blocked_me,
+        "can_message": not i_blocked_them and not they_blocked_me
+    }
+
+
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
 def get_user_by_username(username: str) -> UserSearchResponse:
     conn = get_db()
@@ -1483,6 +1666,19 @@ def send_message(req: SendMessageRequest, current_user_id: int = Depends(get_use
     if cur.fetchone() is None:
         conn.close()
         raise HTTPException(status_code=404, detail="recipient not found")
+    
+    # Verificar si hay bloqueo entre los usuarios
+    cur.execute(
+        """
+        SELECT id FROM blocked_contacts 
+        WHERE (blocker_user_id = ? AND blocked_user_id = ?)
+        OR (blocker_user_id = ? AND blocked_user_id = ?)
+        """,
+        (current_user_id, req.recipient_id, req.recipient_id, current_user_id)
+    )
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=403, detail="blocked")
 
     # Verificar si ya existe un mensaje con el mismo local_id (evitar duplicados)
     if req.local_id:
