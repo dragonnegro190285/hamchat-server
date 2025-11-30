@@ -727,50 +727,74 @@ class ChatActivity : BaseActivity() {
 
         // Contenido del mensaje (texto, voz o imagen)
         when {
-            message.messageType == "image" && !message.imageData.isNullOrEmpty() -> {
-                // Mensaje de imagen
-                try {
-                    val imageBytes = android.util.Base64.decode(message.imageData, android.util.Base64.NO_WRAP)
-                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                    
-                    val imageView = android.widget.ImageView(this).apply {
-                        setImageBitmap(bitmap)
-                        adjustViewBounds = true
-                        maxWidth = (resources.displayMetrics.widthPixels * 0.6).toInt()
-                        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-                        setPadding(0, 4, 0, 4)
+            message.messageType == "image" -> {
+                // Mensaje de imagen - cargar desde memoria o almacenamiento local
+                val imageData = message.imageData ?: loadMediaLocally(message.localId, "image")
+                
+                if (!imageData.isNullOrEmpty()) {
+                    try {
+                        val imageBytes = android.util.Base64.decode(imageData, android.util.Base64.NO_WRAP)
+                        val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                         
-                        // Click para ver imagen completa
-                        setOnClickListener {
-                            showFullImage(message.imageData)
+                        val imageView = android.widget.ImageView(this).apply {
+                            setImageBitmap(bitmap)
+                            adjustViewBounds = true
+                            maxWidth = (resources.displayMetrics.widthPixels * 0.6).toInt()
+                            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                            setPadding(0, 4, 0, 4)
+                            
+                            setOnClickListener {
+                                showFullImage(imageData)
+                            }
                         }
+                        bubbleLayout.addView(imageView)
+                    } catch (e: Exception) {
+                        val errorView = TextView(this).apply {
+                            text = "📷 [Error al cargar imagen]"
+                            textSize = 14f
+                            setTextColor(0xFF888888.toInt())
+                        }
+                        bubbleLayout.addView(errorView)
                     }
-                    bubbleLayout.addView(imageView)
-                } catch (e: Exception) {
-                    val errorView = TextView(this).apply {
-                        text = "📷 [Error al cargar imagen]"
+                } else {
+                    // Imagen no disponible localmente
+                    val pendingView = TextView(this).apply {
+                        text = "📷 [Imagen pendiente de recibir]"
                         textSize = 14f
                         setTextColor(0xFF888888.toInt())
                     }
-                    bubbleLayout.addView(errorView)
+                    bubbleLayout.addView(pendingView)
                 }
             }
-            message.messageType == "voice" && !message.audioData.isNullOrEmpty() -> {
-                // Mensaje de voz
+            message.messageType == "voice" -> {
+                // Mensaje de voz - cargar desde memoria o almacenamiento local
+                val audioData = message.audioData ?: loadMediaLocally(message.localId, "voice")
+                
                 val voiceContainer = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
                 }
                 
-                val playButton = Button(this).apply {
-                    text = "▶️"
-                    textSize = 18f
-                    setPadding(8, 4, 8, 4)
-                    setOnClickListener {
-                        text = "⏸️"
-                        playVoiceMessage(message.audioData)
-                        postDelayed({ text = "▶️" }, (message.audioDuration * 1000 + 500).toLong())
+                if (!audioData.isNullOrEmpty()) {
+                    val playButton = Button(this).apply {
+                        text = "▶️"
+                        textSize = 18f
+                        setPadding(8, 4, 8, 4)
+                        setOnClickListener {
+                            text = "⏸️"
+                            playVoiceMessage(audioData)
+                            postDelayed({ text = "▶️" }, (message.audioDuration * 1000 + 500).toLong())
+                        }
                     }
+                    voiceContainer.addView(playButton)
+                } else {
+                    val pendingButton = Button(this).apply {
+                        text = "⏳"
+                        textSize = 18f
+                        setPadding(8, 4, 8, 4)
+                        isEnabled = false
+                    }
+                    voiceContainer.addView(pendingButton)
                 }
                 
                 val durationText = TextView(this).apply {
@@ -780,7 +804,6 @@ class ChatActivity : BaseActivity() {
                     setPadding(8, 0, 0, 0)
                 }
                 
-                voiceContainer.addView(playButton)
                 voiceContainer.addView(durationText)
                 bubbleLayout.addView(voiceContainer)
             }
@@ -1761,13 +1784,17 @@ class ChatActivity : BaseActivity() {
     
     private fun sendVoiceMessage(audioBase64: String, duration: Int) {
         val localId = java.util.UUID.randomUUID().toString()
+        
+        // Guardar audio localmente
+        saveMediaLocally(localId, "voice", audioBase64)
+        
         val voiceMessage = ChatMessage(
             sender = "Yo",
             content = "🎤 Mensaje de voz (${duration}s)",
             timestamp = System.currentTimeMillis(),
             localId = localId,
             messageType = "voice",
-            audioData = audioBase64,
+            audioData = audioBase64,  // Se guarda localmente
             audioDuration = duration
         )
         
@@ -1775,6 +1802,7 @@ class ChatActivity : BaseActivity() {
         saveMessages()
         renderMessages(forceRender = true)
         
+        // Solo enviar notificación al servidor (sin datos multimedia)
         if (remoteUserId != null) {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
             val request = com.hamtaro.hamchat.network.MessageRequest(
@@ -1782,7 +1810,7 @@ class ChatActivity : BaseActivity() {
                 content = voiceMessage.content,
                 local_id = localId,
                 message_type = "voice",
-                audio_data = audioBase64,
+                audio_data = null,  // NO enviar audio al servidor
                 audio_duration = duration
             )
             com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
@@ -1932,19 +1960,24 @@ class ChatActivity : BaseActivity() {
     
     private fun sendImageMessage(imageBase64: String) {
         val localId = java.util.UUID.randomUUID().toString()
+        
+        // Guardar imagen localmente
+        saveMediaLocally(localId, "image", imageBase64)
+        
         val imageMessage = ChatMessage(
             sender = "Yo",
             content = "📷 Imagen",
             timestamp = System.currentTimeMillis(),
             localId = localId,
             messageType = "image",
-            imageData = imageBase64
+            imageData = imageBase64  // Se guarda localmente
         )
         
         messages.add(imageMessage)
         saveMessages()
         renderMessages(forceRender = true)
         
+        // Solo enviar notificación al servidor (sin datos multimedia)
         if (remoteUserId != null) {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
             val request = com.hamtaro.hamchat.network.MessageRequest(
@@ -1952,7 +1985,7 @@ class ChatActivity : BaseActivity() {
                 content = imageMessage.content,
                 local_id = localId,
                 message_type = "image",
-                image_data = imageBase64
+                image_data = null  // NO enviar imagen al servidor
             )
             com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
                 .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
@@ -1961,7 +1994,7 @@ class ChatActivity : BaseActivity() {
                 })
         }
         
-        Toast.makeText(this, "📷 Imagen enviada", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "📷 Imagen guardada localmente", Toast.LENGTH_SHORT).show()
     }
     
     private fun showFullImage(imageData: String) {
@@ -1982,6 +2015,55 @@ class ChatActivity : BaseActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Error al mostrar imagen", Toast.LENGTH_SHORT).show()
         }
+    }
+    
+    // ========== Almacenamiento Local de Multimedia ==========
+    
+    /**
+     * Guarda multimedia (audio/imagen) localmente en el dispositivo
+     */
+    private fun saveMediaLocally(localId: String, type: String, data: String) {
+        try {
+            val mediaDir = java.io.File(filesDir, "media_$contactId")
+            if (!mediaDir.exists()) mediaDir.mkdirs()
+            
+            val extension = if (type == "voice") "m4a" else "jpg"
+            val file = java.io.File(mediaDir, "${localId}.$extension")
+            
+            val bytes = android.util.Base64.decode(data, android.util.Base64.NO_WRAP)
+            file.writeBytes(bytes)
+        } catch (e: Exception) {
+            // Silently fail - data is still in memory
+        }
+    }
+    
+    /**
+     * Carga multimedia desde almacenamiento local
+     */
+    private fun loadMediaLocally(localId: String, type: String): String? {
+        try {
+            val mediaDir = java.io.File(filesDir, "media_$contactId")
+            val extension = if (type == "voice") "m4a" else "jpg"
+            val file = java.io.File(mediaDir, "${localId}.$extension")
+            
+            if (file.exists()) {
+                val bytes = file.readBytes()
+                return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            }
+        } catch (e: Exception) {
+            // File not found or error reading
+        }
+        return null
+    }
+    
+    /**
+     * Verifica si existe multimedia local para un mensaje
+     */
+    private fun hasLocalMedia(localId: String, type: String): Boolean {
+        val mediaDir = java.io.File(filesDir, "media_$contactId")
+        val extension = if (type == "voice") "m4a" else "jpg"
+        val file = java.io.File(mediaDir, "${localId}.$extension")
+        return file.exists()
     }
 }
 
