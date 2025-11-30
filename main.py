@@ -188,6 +188,24 @@ def create_tables() -> None:
         );
         """
     )
+    
+    # Solicitudes de restauración de contacto
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contact_restore_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requester_user_id INTEGER NOT NULL,
+            target_user_id INTEGER NOT NULL,
+            requester_username TEXT NOT NULL,
+            requester_phone TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            responded_at TEXT,
+            FOREIGN KEY(requester_user_id) REFERENCES users(id),
+            FOREIGN KEY(target_user_id) REFERENCES users(id)
+        );
+        """
+    )
 
     # Auth tokens for simple token-based auth
     cur.execute(
@@ -1079,6 +1097,216 @@ def mark_notification_seen(
     conn.close()
     
     return {"success": True}
+
+
+# ---------- Contact restore requests ----------
+
+
+class RestoreContactRequest(BaseModel):
+    target_user_id: int
+
+
+class ContactRestoreRequestDto(BaseModel):
+    id: int
+    requester_user_id: int
+    requester_username: str
+    requester_phone: str
+    created_at: str
+    status: str
+
+
+class RespondRestoreRequest(BaseModel):
+    request_id: int
+    accept: bool
+
+
+@app.post("/api/contacts/restore-request")
+def send_restore_request(
+    req: RestoreContactRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Enviar solicitud para restaurar contacto eliminado.
+    El otro usuario recibirá una notificación para aceptar o rechazar.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Obtener información del usuario que solicita
+    cur.execute("SELECT username, phone_e164 FROM users WHERE id = ?", (current_user_id,))
+    current_user = cur.fetchone()
+    
+    if not current_user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="user not found")
+    
+    # Verificar que no exista una solicitud pendiente
+    cur.execute(
+        """
+        SELECT id FROM contact_restore_requests 
+        WHERE requester_user_id = ? AND target_user_id = ? AND status = 'pending'
+        """,
+        (current_user_id, req.target_user_id)
+    )
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ya existe una solicitud pendiente")
+    
+    # Crear solicitud de restauración
+    cur.execute(
+        """
+        INSERT INTO contact_restore_requests 
+        (requester_user_id, target_user_id, requester_username, requester_phone, created_at, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+        """,
+        (
+            current_user_id,
+            req.target_user_id,
+            current_user["username"],
+            current_user["phone_e164"],
+            now_iso()
+        )
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"🔄 Solicitud de restauración: {current_user['username']} → usuario {req.target_user_id}")
+    
+    return {
+        "success": True,
+        "message": "Solicitud enviada. El usuario será notificado."
+    }
+
+
+@app.get("/api/contacts/restore-requests", response_model=List[ContactRestoreRequestDto])
+def get_restore_requests(
+    current_user_id: int = Depends(get_user_id_from_token)
+) -> List[ContactRestoreRequestDto]:
+    """
+    Obtener solicitudes de restauración de contacto pendientes.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT id, requester_user_id, requester_username, requester_phone, created_at, status
+        FROM contact_restore_requests
+        WHERE target_user_id = ? AND status = 'pending'
+        ORDER BY created_at DESC
+        """,
+        (current_user_id,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [
+        ContactRestoreRequestDto(
+            id=r["id"],
+            requester_user_id=r["requester_user_id"],
+            requester_username=r["requester_username"],
+            requester_phone=r["requester_phone"],
+            created_at=r["created_at"],
+            status=r["status"]
+        )
+        for r in rows
+    ]
+
+
+@app.post("/api/contacts/restore-requests/respond")
+def respond_to_restore_request(
+    req: RespondRestoreRequest,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Responder a una solicitud de restauración de contacto.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verificar que la solicitud existe y es para este usuario
+    cur.execute(
+        """
+        SELECT id, requester_user_id, requester_username FROM contact_restore_requests 
+        WHERE id = ? AND target_user_id = ? AND status = 'pending'
+        """,
+        (req.request_id, current_user_id)
+    )
+    request_row = cur.fetchone()
+    
+    if not request_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    
+    new_status = "accepted" if req.accept else "rejected"
+    
+    # Actualizar estado de la solicitud
+    cur.execute(
+        """
+        UPDATE contact_restore_requests 
+        SET status = ?, responded_at = ?
+        WHERE id = ?
+        """,
+        (new_status, now_iso(), req.request_id)
+    )
+    
+    # Si se acepta, eliminar cualquier notificación de eliminación pendiente
+    if req.accept:
+        cur.execute(
+            """
+            DELETE FROM contact_deleted_notifications 
+            WHERE (deleted_by_user_id = ? AND notify_user_id = ?)
+            OR (deleted_by_user_id = ? AND notify_user_id = ?)
+            """,
+            (current_user_id, request_row["requester_user_id"],
+             request_row["requester_user_id"], current_user_id)
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    action = "aceptada" if req.accept else "rechazada"
+    print(f"✅ Solicitud {action}: {request_row['requester_username']} ↔ usuario {current_user_id}")
+    
+    return {
+        "success": True,
+        "accepted": req.accept,
+        "message": f"Solicitud {action}"
+    }
+
+
+@app.get("/api/contacts/restore-requests/status/{target_user_id}")
+def check_restore_request_status(
+    target_user_id: int,
+    current_user_id: int = Depends(get_user_id_from_token)
+):
+    """
+    Verificar el estado de una solicitud de restauración enviada.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT id, status, responded_at FROM contact_restore_requests 
+        WHERE requester_user_id = ? AND target_user_id = ?
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (current_user_id, target_user_id)
+    )
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        return {"has_request": False}
+    
+    return {
+        "has_request": True,
+        "request_id": row["id"],
+        "status": row["status"],
+        "responded_at": row["responded_at"]
+    }
 
 
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
