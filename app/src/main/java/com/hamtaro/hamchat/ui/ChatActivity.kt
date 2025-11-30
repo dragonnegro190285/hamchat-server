@@ -178,6 +178,9 @@ class ChatActivity : BaseActivity() {
     private val konamiInput = mutableListOf<String>()
     private var lastKonamiInputTime = 0L
     
+    // Botón de adjuntar (+)
+    private var attachButton: Button? = null
+    
     // Emojis tipográficos
     private var emojiButton: Button? = null
     private val defaultTextEmojis = listOf(
@@ -242,6 +245,9 @@ class ChatActivity : BaseActivity() {
             
             // Configurar botón de emojis tipográficos
             setupEmojiButton()
+            
+            // Configurar botón de adjuntar (+)
+            setupAttachButton()
 
             // Configure UI based on chat type
             if (isPrivateChat) {
@@ -3092,6 +3098,91 @@ class ChatActivity : BaseActivity() {
                 prefs.edit().remove("saved_messages").apply()
                 Toast.makeText(this, "Colección limpiada", Toast.LENGTH_SHORT).show()
             }
+            .show()
+    }
+    
+    // ========== Botón de Adjuntar (+) ==========
+    
+    /**
+     * Configurar botón de adjuntar
+     */
+    private fun setupAttachButton() {
+        attachButton = findViewById(R.id.btn_attach)
+        
+        attachButton?.setOnClickListener {
+            showAttachMenu()
+        }
+    }
+    
+    /**
+     * Mostrar menú de opciones de adjuntar
+     */
+    private fun showAttachMenu() {
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        
+        // Emojis tipográficos
+        options.add("n.n Emojis tipográficos")
+        actions.add { showTextEmojiPicker() }
+        
+        // Foto/Imagen
+        options.add("📷 Foto o imagen")
+        actions.add { showPhotoOptions() }
+        
+        // Audio/Voz
+        options.add("🎤 Mensaje de voz")
+        actions.add { 
+            Toast.makeText(this, "Mantén presionado el botón 🎤 para grabar", Toast.LENGTH_SHORT).show()
+            // Mostrar botón de voz temporalmente
+            voiceButton?.visibility = View.VISIBLE
+        }
+        
+        // Ubicación
+        options.add("📍 Compartir ubicación")
+        actions.add { shareLocation() }
+        
+        // Mensaje programado
+        if (remoteUserId != null) {
+            options.add("⏰ Programar mensaje")
+            actions.add { showScheduleMessageDialog() }
+        }
+        
+        // Estadísticas
+        options.add("📊 Estadísticas del chat")
+        actions.add { showChatStatistics() }
+        
+        // Notas del contacto
+        if (!isPrivateChat) {
+            options.add("📝 Notas sobre $contactName")
+            actions.add { showContactNotesDialog() }
+        }
+        
+        // Exportar chat
+        options.add("📤 Exportar conversación")
+        actions.add { exportChatToTxt() }
+        
+        // Buscar en chat
+        options.add("🔍 Buscar en chat")
+        actions.add { showSearchBar() }
+        
+        // Proteger con PIN
+        options.add("🔐 Proteger con PIN")
+        actions.add { showSetPinDialog() }
+        
+        // Mensajes guardados
+        options.add("📋 Mensajes guardados")
+        actions.add { showSavedMessages() }
+        
+        // Mi código QR
+        options.add("📱 Mi código QR")
+        actions.add { showMyQrCode() }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("➕ Adjuntar")
+            .setItems(options.toTypedArray()) { _, which ->
+                actions[which]()
+            }
+            .setNegativeButton("Cancelar", null)
             .show()
     }
     
