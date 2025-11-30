@@ -27,6 +27,17 @@ private const val PREFS_NAME = "hamchat_settings"
 private const val KEY_CHAT_PREFIX = "chat_"
 private const val KEY_PRIVATE_CHAT = "private_chat_hamtaro"
 private const val KEY_DRAFT_PREFIX = "draft_"  // Borradores de mensajes
+private const val KEY_NOTES_PREFIX = "notes_"  // Notas privadas por contacto
+private const val KEY_SCHEDULED_PREFIX = "scheduled_"  // Mensajes programados
+
+/**
+ * Mensaje programado para enviar en el futuro
+ */
+data class ScheduledMessage(
+    val content: String,
+    val scheduledTime: Long,
+    val localId: String
+)
 
 /**
  * Estado del mensaje para mostrar indicadores visuales
@@ -140,6 +151,21 @@ class ChatActivity : BaseActivity() {
     private var currentPhotoUri: android.net.Uri? = null
     private val REQUEST_CAMERA = 101
     private val REQUEST_GALLERY = 102
+    
+    // Sistema de búsqueda en chat
+    private var isSearchMode = false
+    private var searchQuery = ""
+    private var filteredMessages = mutableListOf<ChatMessage>()
+    
+    // Sistema de notas privadas por contacto
+    private var contactNotes = ""
+    
+    // Sistema de mensajes programados
+    private val scheduledMessages = mutableListOf<ScheduledMessage>()
+    
+    // Edición de mensajes
+    private var editingMessage: ChatMessage? = null
+    private val EDIT_WINDOW_MINUTES = 15 // Ventana de 15 minutos para editar
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -1001,6 +1027,12 @@ class ChatActivity : BaseActivity() {
         options.add("ℹ️ Info del mensaje")
         actions.add { showMessageInfo(message) }
         
+        // Editar mensaje (solo mensajes propios dentro de ventana de tiempo)
+        if (isMyMessage && canEditMessage(message)) {
+            options.add("✏️ Editar mensaje")
+            actions.add { startEditMessage(message) }
+        }
+        
         // Eliminar
         if (isPrivateChat) {
             options.add("🗑️ Eliminar nota")
@@ -1008,6 +1040,12 @@ class ChatActivity : BaseActivity() {
         } else {
             options.add("🗑️ Eliminar (solo aquí)")
             actions.add { confirmDeleteSingleRemoteMessage(message) }
+            
+            // Borrar para todos (solo mensajes propios)
+            if (isMyMessage && remoteUserId != null) {
+                options.add("🗑️ Borrar para todos")
+                actions.add { confirmDeleteForEveryone(message) }
+            }
         }
         
         // Cancelar
@@ -2270,6 +2308,433 @@ class ChatActivity : BaseActivity() {
             messages[index] = updatedMessage
             saveMessages()
         }
+    }
+    
+    // ========== Búsqueda en Chat ==========
+    
+    /**
+     * Mostrar barra de búsqueda
+     */
+    fun showSearchBar() {
+        val searchContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(16, 8, 16, 8)
+            setBackgroundColor(0xFFF5F5F5.toInt())
+        }
+        
+        val searchInput = EditText(this).apply {
+            hint = "🔍 Buscar en chat..."
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setSingleLine(true)
+        }
+        
+        val closeButton = Button(this).apply {
+            text = "✕"
+            setOnClickListener {
+                isSearchMode = false
+                searchQuery = ""
+                (searchContainer.parent as? LinearLayout)?.removeView(searchContainer)
+                renderMessages(forceRender = true)
+            }
+        }
+        
+        searchInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                searchQuery = s?.toString() ?: ""
+                isSearchMode = searchQuery.isNotEmpty()
+                filterAndRenderMessages()
+            }
+        })
+        
+        searchContainer.addView(searchInput)
+        searchContainer.addView(closeButton)
+        
+        // Insertar arriba del scroll
+        val parent = messagesScrollView.parent as? LinearLayout
+        parent?.addView(searchContainer, 0)
+        
+        searchInput.requestFocus()
+    }
+    
+    /**
+     * Filtrar y renderizar mensajes según búsqueda
+     */
+    private fun filterAndRenderMessages() {
+        messagesContainer.removeAllViews()
+        
+        val messagesToShow = if (isSearchMode && searchQuery.isNotEmpty()) {
+            messages.filter { it.content.contains(searchQuery, ignoreCase = true) }
+        } else {
+            messages
+        }
+        
+        if (messagesToShow.isEmpty() && isSearchMode) {
+            val noResults = TextView(this).apply {
+                text = "🔍 No se encontraron mensajes con \"$searchQuery\""
+                setPadding(32, 64, 32, 64)
+                gravity = android.view.Gravity.CENTER
+                setTextColor(0xFF888888.toInt())
+            }
+            messagesContainer.addView(noResults)
+        } else {
+            for (m in messagesToShow) {
+                addMessageToContainer(m)
+            }
+        }
+        
+        scrollToBottom()
+    }
+    
+    // ========== Notas Privadas por Contacto ==========
+    
+    /**
+     * Cargar notas del contacto
+     */
+    private fun loadContactNotes() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        contactNotes = prefs.getString(KEY_NOTES_PREFIX + contactId, "") ?: ""
+    }
+    
+    /**
+     * Guardar notas del contacto
+     */
+    private fun saveContactNotes(notes: String) {
+        contactNotes = notes
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().putString(KEY_NOTES_PREFIX + contactId, notes).apply()
+    }
+    
+    /**
+     * Mostrar diálogo de notas del contacto
+     */
+    fun showContactNotesDialog() {
+        loadContactNotes()
+        
+        val input = EditText(this).apply {
+            setText(contactNotes)
+            hint = "Escribe notas privadas sobre este contacto..."
+            minLines = 3
+            maxLines = 8
+            gravity = android.view.Gravity.TOP
+            setPadding(32, 16, 32, 16)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📝 Notas sobre $contactName")
+            .setView(input)
+            .setPositiveButton("💾 Guardar") { _, _ ->
+                saveContactNotes(input.text.toString())
+                Toast.makeText(this, "Notas guardadas", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    // ========== Mensajes Programados ==========
+    
+    /**
+     * Mostrar diálogo para programar mensaje
+     */
+    fun showScheduleMessageDialog() {
+        val text = messageEditText.text.toString().trim()
+        if (text.isEmpty()) {
+            Toast.makeText(this, "Escribe un mensaje primero", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val calendar = java.util.Calendar.getInstance()
+        
+        android.app.DatePickerDialog(this, { _, year, month, day ->
+            android.app.TimePickerDialog(this, { _, hour, minute ->
+                calendar.set(year, month, day, hour, minute)
+                val scheduledTime = calendar.timeInMillis
+                
+                if (scheduledTime <= System.currentTimeMillis()) {
+                    Toast.makeText(this, "Selecciona una hora futura", Toast.LENGTH_SHORT).show()
+                    return@TimePickerDialog
+                }
+                
+                scheduleMessage(text, scheduledTime)
+                messageEditText.setText("")
+                
+                val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+                Toast.makeText(this, "⏰ Mensaje programado para ${sdf.format(java.util.Date(scheduledTime))}", Toast.LENGTH_LONG).show()
+                
+            }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
+        }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+    }
+    
+    /**
+     * Programar mensaje para envío futuro
+     */
+    private fun scheduleMessage(content: String, scheduledTime: Long) {
+        val localId = generateLocalId()
+        val scheduled = ScheduledMessage(content, scheduledTime, localId)
+        scheduledMessages.add(scheduled)
+        saveScheduledMessages()
+        
+        // Programar envío con AlarmManager o Handler
+        val delay = scheduledTime - System.currentTimeMillis()
+        Handler(Looper.getMainLooper()).postDelayed({
+            sendScheduledMessage(scheduled)
+        }, delay)
+    }
+    
+    /**
+     * Enviar mensaje programado
+     */
+    private fun sendScheduledMessage(scheduled: ScheduledMessage) {
+        if (remoteUserId == null) return
+        
+        val now = System.currentTimeMillis()
+        val message = ChatMessage(
+            sender = "Yo",
+            content = scheduled.content,
+            timestamp = now,
+            localId = scheduled.localId,
+            isSentToServer = false
+        )
+        messages.add(message)
+        saveMessages()
+        
+        HamChatSyncManager.addPendingMessage(this, contactId, scheduled.content, now, scheduled.localId)
+        HamChatSyncManager.flushPendingMessages(this, contactId, remoteUserId!!)
+        
+        // Remover de programados
+        scheduledMessages.removeAll { it.localId == scheduled.localId }
+        saveScheduledMessages()
+        
+        runOnUiThread {
+            renderMessages(forceRender = true)
+            Toast.makeText(this, "⏰ Mensaje programado enviado", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Guardar mensajes programados
+     */
+    private fun saveScheduledMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val array = JSONArray()
+        for (s in scheduledMessages) {
+            val obj = JSONObject().apply {
+                put("content", s.content)
+                put("scheduledTime", s.scheduledTime)
+                put("localId", s.localId)
+            }
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_SCHEDULED_PREFIX + contactId, array.toString()).apply()
+    }
+    
+    /**
+     * Cargar mensajes programados
+     */
+    private fun loadScheduledMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val json = prefs.getString(KEY_SCHEDULED_PREFIX + contactId, null) ?: return
+        
+        try {
+            val array = JSONArray(json)
+            scheduledMessages.clear()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val scheduled = ScheduledMessage(
+                    content = obj.getString("content"),
+                    scheduledTime = obj.getLong("scheduledTime"),
+                    localId = obj.getString("localId")
+                )
+                
+                // Si aún no ha pasado la hora, reprogramar
+                if (scheduled.scheduledTime > System.currentTimeMillis()) {
+                    scheduledMessages.add(scheduled)
+                    val delay = scheduled.scheduledTime - System.currentTimeMillis()
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        sendScheduledMessage(scheduled)
+                    }, delay)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar errores
+        }
+    }
+    
+    // ========== Editar Mensaje ==========
+    
+    /**
+     * Verificar si un mensaje puede ser editado
+     */
+    private fun canEditMessage(message: ChatMessage): Boolean {
+        if (message.sender != "Yo") return false
+        if (message.isSystemMessage) return false
+        
+        val elapsedMinutes = (System.currentTimeMillis() - message.timestamp) / 60000
+        return elapsedMinutes <= EDIT_WINDOW_MINUTES
+    }
+    
+    /**
+     * Iniciar edición de mensaje
+     */
+    private fun startEditMessage(message: ChatMessage) {
+        editingMessage = message
+        messageEditText.setText(message.content)
+        messageEditText.setSelection(message.content.length)
+        messageEditText.requestFocus()
+        
+        // Cambiar botón de enviar a "Guardar"
+        sendButton.text = "💾"
+        
+        Toast.makeText(this, "✏️ Editando mensaje...", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Guardar mensaje editado
+     */
+    private fun saveEditedMessage(newContent: String) {
+        val message = editingMessage ?: return
+        
+        val index = messages.indexOfFirst { it.localId == message.localId || it.serverId == message.serverId }
+        if (index >= 0) {
+            val updatedMessage = messages[index].copy(
+                content = "$newContent (editado)"
+            )
+            messages[index] = updatedMessage
+            saveMessages()
+            
+            // Si está en servidor, enviar actualización
+            if (message.serverId > 0 && remoteUserId != null) {
+                updateMessageOnServer(message.serverId, newContent)
+            }
+            
+            renderMessages(forceRender = true)
+        }
+        
+        editingMessage = null
+        sendButton.text = if (remoteUserId != null) "📤" else "💾"
+        Toast.makeText(this, "✅ Mensaje editado", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Actualizar mensaje en servidor
+     */
+    private fun updateMessageOnServer(messageId: Int, newContent: String) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        val authHeader = "Bearer $token"
+        
+        val request = mapOf("content" to newContent)
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.editMessage(authHeader, messageId, request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    // Editado en servidor
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    // Error al editar
+                }
+            })
+    }
+    
+    // ========== Borrar para Todos ==========
+    
+    /**
+     * Confirmar borrado para todos
+     */
+    private fun confirmDeleteForEveryone(message: ChatMessage) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🗑️ Borrar para todos")
+            .setMessage("¿Eliminar este mensaje para ti y para ${contactName}?\n\nEsta acción no se puede deshacer.")
+            .setPositiveButton("Borrar") { _, _ ->
+                deleteMessageForEveryone(message)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Borrar mensaje para todos
+     */
+    private fun deleteMessageForEveryone(message: ChatMessage) {
+        if (message.serverId <= 0) {
+            Toast.makeText(this, "Este mensaje aún no está en el servidor", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        val authHeader = "Bearer $token"
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.deleteMessageForEveryone(authHeader, message.serverId)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        // Actualizar mensaje localmente
+                        val index = messages.indexOfFirst { it.serverId == message.serverId }
+                        if (index >= 0) {
+                            val deletedMessage = messages[index].copy(
+                                content = "🗑️ Mensaje eliminado",
+                                isSystemMessage = true
+                            )
+                            messages[index] = deletedMessage
+                            saveMessages()
+                            runOnUiThread {
+                                renderMessages(forceRender = true)
+                                Toast.makeText(this@ChatActivity, "Mensaje eliminado para todos", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        runOnUiThread {
+                            Toast.makeText(this@ChatActivity, "Error al eliminar", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            })
+    }
+    
+    // ========== Estadísticas del Chat ==========
+    
+    /**
+     * Mostrar estadísticas del chat
+     */
+    fun showChatStatistics() {
+        val totalMessages = messages.size
+        val myMessages = messages.count { it.sender == "Yo" }
+        val theirMessages = messages.count { it.sender != "Yo" && !it.isSystemMessage }
+        val voiceMessages = messages.count { it.messageType == "voice" }
+        val imageMessages = messages.count { it.messageType == "image" }
+        val starredCount = starredMessages.size
+        
+        val firstMessage = messages.minByOrNull { it.timestamp }
+        val lastMessage = messages.maxByOrNull { it.timestamp }
+        
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+        val firstDate = firstMessage?.let { sdf.format(java.util.Date(it.timestamp)) } ?: "N/A"
+        val lastDate = lastMessage?.let { sdf.format(java.util.Date(it.timestamp)) } ?: "N/A"
+        
+        val stats = """
+            📊 Estadísticas del chat con $contactName
+            
+            📨 Total de mensajes: $totalMessages
+            📤 Mensajes enviados: $myMessages
+            📥 Mensajes recibidos: $theirMessages
+            🎤 Mensajes de voz: $voiceMessages
+            📷 Imágenes: $imageMessages
+            ⭐ Destacados: $starredCount
+            
+            📅 Primer mensaje: $firstDate
+            📅 Último mensaje: $lastDate
+        """.trimIndent()
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📊 Estadísticas")
+            .setMessage(stats)
+            .setPositiveButton("OK", null)
+            .show()
     }
 }
 

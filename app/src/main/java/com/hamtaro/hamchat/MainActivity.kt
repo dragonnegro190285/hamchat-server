@@ -69,7 +69,10 @@ data class ContactItem(
     val timestamp: String = "",
     val isOnline: Boolean = false,
     val unreadCount: Int = 0,
-    val phoneNumber: String? = null
+    val phoneNumber: String? = null,
+    val isPinned: Boolean = false,
+    val isMuted: Boolean = false,
+    val label: String? = null // Etiqueta: "Familia", "Trabajo", "Amigos", etc.
 )
 
 /**
@@ -1472,6 +1475,165 @@ class MainActivity : BaseActivity() {
                     // Silencioso
                 }
             })
+    }
+    
+    // ========== Fijar Conversaciones ==========
+    
+    private fun getPinnedContacts(): Set<String> {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        return prefs.getStringSet("pinned_contacts", emptySet()) ?: emptySet()
+    }
+    
+    private fun setPinnedContact(contactId: String, pinned: Boolean) {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        val current = getPinnedContacts().toMutableSet()
+        if (pinned) current.add(contactId) else current.remove(contactId)
+        prefs.edit().putStringSet("pinned_contacts", current).apply()
+    }
+    
+    fun togglePinContact(contactId: String, contactName: String) {
+        val isPinned = getPinnedContacts().contains(contactId)
+        setPinnedContact(contactId, !isPinned)
+        val msg = if (!isPinned) "📌 $contactName fijado" else "📌 $contactName desfijado"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        refreshContactsList()
+    }
+    
+    // ========== Silenciar Contacto ==========
+    
+    private fun getMutedContacts(): Set<String> {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        return prefs.getStringSet("muted_contacts", emptySet()) ?: emptySet()
+    }
+    
+    private fun setMutedContact(contactId: String, muted: Boolean) {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        val current = getMutedContacts().toMutableSet()
+        if (muted) current.add(contactId) else current.remove(contactId)
+        prefs.edit().putStringSet("muted_contacts", current).apply()
+    }
+    
+    fun toggleMuteContact(contactId: String, contactName: String) {
+        val isMuted = getMutedContacts().contains(contactId)
+        setMutedContact(contactId, !isMuted)
+        val msg = if (!isMuted) "🔔 $contactName silenciado" else "🔔 $contactName con notificaciones"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+    
+    fun isContactMuted(contactId: String): Boolean {
+        return getMutedContacts().contains(contactId)
+    }
+    
+    // ========== Etiquetas de Contactos ==========
+    
+    private val CONTACT_LABELS = listOf("Sin etiqueta", "👨‍👩‍👧 Familia", "💼 Trabajo", "👫 Amigos", "⭐ Favoritos", "🎮 Juegos")
+    
+    private fun getContactLabel(contactId: String): String? {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        return prefs.getString("label_$contactId", null)
+    }
+    
+    private fun setContactLabel(contactId: String, label: String?) {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        if (label == null || label == "Sin etiqueta") {
+            prefs.edit().remove("label_$contactId").apply()
+        } else {
+            prefs.edit().putString("label_$contactId", label).apply()
+        }
+    }
+    
+    fun showLabelDialog(contactId: String, contactName: String) {
+        val currentLabel = getContactLabel(contactId)
+        val currentIndex = CONTACT_LABELS.indexOfFirst { it == currentLabel }.takeIf { it >= 0 } ?: 0
+        
+        AlertDialog.Builder(this)
+            .setTitle("🏷️ Etiqueta para $contactName")
+            .setSingleChoiceItems(CONTACT_LABELS.toTypedArray(), currentIndex) { dialog, which ->
+                setContactLabel(contactId, CONTACT_LABELS[which])
+                Toast.makeText(this, "Etiqueta: ${CONTACT_LABELS[which]}", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                refreshContactsList()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    // ========== Modo Oscuro ==========
+    
+    fun isDarkModeEnabled(): Boolean {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        return prefs.getBoolean("dark_mode", false)
+    }
+    
+    fun toggleDarkMode() {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        val current = isDarkModeEnabled()
+        prefs.edit().putBoolean("dark_mode", !current).apply()
+        
+        // Aplicar tema
+        if (!current) {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+            )
+            Toast.makeText(this, "🌙 Modo oscuro activado", Toast.LENGTH_SHORT).show()
+        } else {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            )
+            Toast.makeText(this, "☀️ Modo claro activado", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // ========== Estadísticas Globales ==========
+    
+    fun showGlobalStatistics() {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        
+        // Contar contactos
+        val allKeys = prefs.all.keys
+        val chatKeys = allKeys.filter { it.startsWith("chat_") }
+        val totalChats = chatKeys.size
+        
+        var totalMessages = 0
+        var totalSent = 0
+        var totalReceived = 0
+        
+        for (key in chatKeys) {
+            try {
+                val json = prefs.getString(key, "[]") ?: "[]"
+                val array = org.json.JSONArray(json)
+                totalMessages += array.length()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    if (obj.optString("sender") == "Yo") totalSent++ else totalReceived++
+                }
+            } catch (e: Exception) { }
+        }
+        
+        val pinnedCount = getPinnedContacts().size
+        val mutedCount = getMutedContacts().size
+        
+        val stats = """
+            📊 Estadísticas de Ham-Chat
+            
+            💬 Total de conversaciones: $totalChats
+            📨 Total de mensajes: $totalMessages
+            📤 Mensajes enviados: $totalSent
+            📥 Mensajes recibidos: $totalReceived
+            📌 Conversaciones fijadas: $pinnedCount
+            🔕 Contactos silenciados: $mutedCount
+        """.trimIndent()
+        
+        AlertDialog.Builder(this)
+            .setTitle("📊 Estadísticas")
+            .setMessage(stats)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+    
+    private fun refreshContactsList() {
+        // Recargar la lista de chats
+        pollInboxOnce()
     }
 
     private fun showRegistrationDialog() {

@@ -11,6 +11,7 @@ import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Query
 
 // DTOs
@@ -268,6 +269,19 @@ interface HamChatApi {
     fun markMessagesDelivered(
         @Header("Authorization") authHeader: String,
         @Body body: MarkDeliveredRequest
+    ): Call<Map<String, Any>>
+    
+    @PUT("messages/{message_id}")
+    fun editMessage(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("message_id") messageId: Int,
+        @Body body: Map<String, String>
+    ): Call<Map<String, Any>>
+    
+    @DELETE("messages/{message_id}")
+    fun deleteMessageForEveryone(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("message_id") messageId: Int
     ): Call<Map<String, Any>>
 
     @GET("users/by-username/{username}")
