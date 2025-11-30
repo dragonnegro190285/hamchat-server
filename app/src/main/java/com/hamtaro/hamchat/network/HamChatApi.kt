@@ -150,6 +150,34 @@ data class AddGroupMemberRequest(
     val user_id: Int
 )
 
+// ========== Media Relay Models ==========
+
+data class MediaUploadRequest(
+    val message_local_id: String,
+    val recipient_id: Int,
+    val media_type: String,  // "voice" o "image"
+    val media_data: String   // Base64 encoded
+)
+
+data class MediaDownloadResponse(
+    val message_local_id: String,
+    val media_type: String,
+    val media_data: String,
+    val sender_id: Int
+)
+
+data class PendingMediaItem(
+    val message_local_id: String,
+    val media_type: String,
+    val sender_id: Int,
+    val created_at: String
+)
+
+data class PendingMediaResponse(
+    val pending: List<PendingMediaItem>,
+    val count: Int
+)
+
 interface HamChatApi {
 
     @POST("register")
@@ -266,6 +294,25 @@ interface HamChatApi {
         @retrofit2.http.Path("group_id") groupId: Int,
         @Query("since_id") sinceId: Int = 0
     ): Call<List<GroupMessageDto>>
+    
+    // ========== Media Relay ==========
+    
+    @POST("media/upload")
+    fun uploadMedia(
+        @Header("Authorization") authHeader: String,
+        @Body body: MediaUploadRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("media/download/{message_local_id}")
+    fun downloadMedia(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("message_local_id") messageLocalId: String
+    ): Call<MediaDownloadResponse>
+    
+    @GET("media/pending")
+    fun getPendingMedia(
+        @Header("Authorization") authHeader: String
+    ): Call<PendingMediaResponse>
 }
 
 object HamChatApiClient {

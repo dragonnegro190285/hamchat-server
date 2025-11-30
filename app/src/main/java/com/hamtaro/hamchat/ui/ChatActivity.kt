@@ -146,6 +146,7 @@ class ChatActivity : BaseActivity() {
         override fun run() {
             if (remoteUserId != null) {
                 loadMessagesFromServer()
+                downloadPendingMedia()  // Descargar multimedia pendiente
             }
             messagePollingHandler.postDelayed(this, 5_000L) // cada 5 segundos
         }
@@ -1802,22 +1803,28 @@ class ChatActivity : BaseActivity() {
         saveMessages()
         renderMessages(forceRender = true)
         
-        // Solo enviar notificación al servidor (sin datos multimedia)
+        // Enviar notificación al servidor + subir multimedia para relay
         if (remoteUserId != null) {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+            val authHeader = "Bearer $token"
+            
+            // 1. Enviar notificación del mensaje
             val request = com.hamtaro.hamchat.network.MessageRequest(
                 recipient_id = remoteUserId!!,
                 content = voiceMessage.content,
                 local_id = localId,
                 message_type = "voice",
-                audio_data = null,  // NO enviar audio al servidor
+                audio_data = null,
                 audio_duration = duration
             )
-            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
+            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage(authHeader, request)
                 .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
                     override fun onResponse(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, response: retrofit2.Response<com.hamtaro.hamchat.network.MessageDto>) {}
                     override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, t: Throwable) {}
                 })
+            
+            // 2. Subir multimedia al relay para que el receptor la descargue
+            uploadMediaToRelay(localId, remoteUserId!!, "voice", audioBase64)
         }
     }
     
@@ -1977,24 +1984,30 @@ class ChatActivity : BaseActivity() {
         saveMessages()
         renderMessages(forceRender = true)
         
-        // Solo enviar notificación al servidor (sin datos multimedia)
+        // Enviar notificación al servidor + subir multimedia para relay
         if (remoteUserId != null) {
             val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+            val authHeader = "Bearer $token"
+            
+            // 1. Enviar notificación del mensaje
             val request = com.hamtaro.hamchat.network.MessageRequest(
                 recipient_id = remoteUserId!!,
                 content = imageMessage.content,
                 local_id = localId,
                 message_type = "image",
-                image_data = null  // NO enviar imagen al servidor
+                image_data = null
             )
-            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
+            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage(authHeader, request)
                 .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
                     override fun onResponse(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, response: retrofit2.Response<com.hamtaro.hamchat.network.MessageDto>) {}
                     override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, t: Throwable) {}
                 })
+            
+            // 2. Subir multimedia al relay para que el receptor la descargue
+            uploadMediaToRelay(localId, remoteUserId!!, "image", imageBase64)
         }
         
-        Toast.makeText(this, "📷 Imagen guardada localmente", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "📷 Imagen enviada", Toast.LENGTH_SHORT).show()
     }
     
     private fun showFullImage(imageData: String) {
@@ -2064,6 +2077,108 @@ class ChatActivity : BaseActivity() {
         val extension = if (type == "voice") "m4a" else "jpg"
         val file = java.io.File(mediaDir, "${localId}.$extension")
         return file.exists()
+    }
+    
+    // ========== Media Relay ==========
+    
+    /**
+     * Sube multimedia al servidor relay para que el receptor la descargue
+     */
+    private fun uploadMediaToRelay(localId: String, recipientId: Int, mediaType: String, mediaData: String) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        val authHeader = "Bearer $token"
+        
+        val request = com.hamtaro.hamchat.network.MediaUploadRequest(
+            message_local_id = localId,
+            recipient_id = recipientId,
+            media_type = mediaType,
+            media_data = mediaData
+        )
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.uploadMedia(authHeader, request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        // Multimedia subida exitosamente
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    // Error al subir, se reintentará después
+                }
+            })
+    }
+    
+    /**
+     * Descarga multimedia pendiente del servidor relay
+     */
+    private fun downloadPendingMedia() {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        val authHeader = "Bearer $token"
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.getPendingMedia(authHeader)
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.PendingMediaResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.PendingMediaResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.PendingMediaResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val pending = response.body()!!.pending
+                        for (item in pending) {
+                            downloadMediaItem(item.message_local_id, item.media_type)
+                        }
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.PendingMediaResponse>, t: Throwable) {}
+            })
+    }
+    
+    /**
+     * Descarga un item de multimedia específico
+     */
+    private fun downloadMediaItem(localId: String, mediaType: String) {
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+        val authHeader = "Bearer $token"
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.downloadMedia(authHeader, localId)
+            .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MediaDownloadResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.hamtaro.hamchat.network.MediaDownloadResponse>,
+                    response: retrofit2.Response<com.hamtaro.hamchat.network.MediaDownloadResponse>
+                ) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val media = response.body()!!
+                        
+                        // Guardar multimedia localmente
+                        saveMediaLocally(media.message_local_id, media.media_type, media.media_data)
+                        
+                        // Actualizar mensaje en memoria si existe
+                        updateMessageWithMedia(media.message_local_id, media.media_type, media.media_data)
+                        
+                        runOnUiThread {
+                            renderMessages(forceRender = true)
+                            Toast.makeText(this@ChatActivity, "📥 Multimedia recibida", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.MediaDownloadResponse>, t: Throwable) {}
+            })
+    }
+    
+    /**
+     * Actualiza un mensaje en memoria con los datos multimedia descargados
+     */
+    private fun updateMessageWithMedia(localId: String, mediaType: String, mediaData: String) {
+        val index = messages.indexOfFirst { it.localId == localId }
+        if (index >= 0) {
+            val oldMessage = messages[index]
+            val updatedMessage = when (mediaType) {
+                "voice" -> oldMessage.copy(audioData = mediaData)
+                "image" -> oldMessage.copy(imageData = mediaData)
+                else -> oldMessage
+            }
+            messages[index] = updatedMessage
+            saveMessages()
+        }
     }
 }
 
