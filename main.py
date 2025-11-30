@@ -133,6 +133,23 @@ def create_tables() -> None:
     cur.execute("UPDATE messages SET sent_at = created_at WHERE sent_at IS NULL")
     cur.execute("UPDATE messages SET message_type = 'text' WHERE message_type IS NULL")
 
+    # Device backups - respaldos por dispositivo
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            device_name TEXT,
+            backup_data TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            UNIQUE(user_id, device_id)
+        );
+        """
+    )
+
     # Contacts (server-side address book)
     cur.execute(
         """
@@ -997,6 +1014,142 @@ def cleanup_old_media():
     
     for local_id in to_delete:
         del media_relay_storage[local_id]
+
+
+# ========== Sistema de Respaldo y Recuperación ==========
+
+class BackupRequest(BaseModel):
+    device_id: str
+    device_name: Optional[str] = None
+    backup_data: str  # JSON string con los chats
+
+class BackupResponse(BaseModel):
+    id: int
+    device_id: str
+    device_name: Optional[str]
+    created_at: str
+    updated_at: str
+    has_data: bool
+
+class RestoreResponse(BaseModel):
+    device_id: str
+    device_name: Optional[str]
+    backup_data: str
+    updated_at: str
+
+@app.post("/api/backup")
+def create_or_update_backup(req: BackupRequest, current_user_id: int = Depends(get_user_id_from_token)):
+    """Crea o actualiza un respaldo para el dispositivo"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    now = now_iso()
+    
+    # Intentar actualizar si ya existe
+    cur.execute(
+        """
+        UPDATE device_backups 
+        SET backup_data = ?, device_name = ?, updated_at = ?
+        WHERE user_id = ? AND device_id = ?
+        """,
+        (req.backup_data, req.device_name, now, current_user_id, req.device_id)
+    )
+    
+    if cur.rowcount == 0:
+        # No existe, crear nuevo
+        cur.execute(
+            """
+            INSERT INTO device_backups (user_id, device_id, device_name, backup_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (current_user_id, req.device_id, req.device_name, req.backup_data, now, now)
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "saved", "device_id": req.device_id, "updated_at": now}
+
+@app.get("/api/backup/list")
+def list_backups(current_user_id: int = Depends(get_user_id_from_token)):
+    """Lista todos los respaldos del usuario"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT id, device_id, device_name, created_at, updated_at, LENGTH(backup_data) as data_size
+        FROM device_backups
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        """,
+        (current_user_id,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    backups = []
+    for r in rows:
+        backups.append({
+            "id": r["id"],
+            "device_id": r["device_id"],
+            "device_name": r["device_name"],
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+            "data_size": r["data_size"]
+        })
+    
+    return {"backups": backups, "count": len(backups)}
+
+@app.get("/api/backup/restore/{device_id}")
+def restore_backup(device_id: str, current_user_id: int = Depends(get_user_id_from_token)):
+    """Restaura un respaldo específico"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        """
+        SELECT device_id, device_name, backup_data, updated_at
+        FROM device_backups
+        WHERE user_id = ? AND device_id = ?
+        """,
+        (current_user_id, device_id)
+    )
+    row = cur.fetchone()
+    conn.close()
+    
+    if row is None:
+        raise HTTPException(status_code=404, detail="Respaldo no encontrado")
+    
+    return RestoreResponse(
+        device_id=row["device_id"],
+        device_name=row["device_name"],
+        backup_data=row["backup_data"],
+        updated_at=row["updated_at"]
+    )
+
+@app.delete("/api/backup/{device_id}")
+def delete_backup(device_id: str, current_user_id: int = Depends(get_user_id_from_token)):
+    """Elimina un respaldo específico"""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        "DELETE FROM device_backups WHERE user_id = ? AND device_id = ?",
+        (current_user_id, device_id)
+    )
+    conn.commit()
+    deleted = cur.rowcount
+    conn.close()
+    
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Respaldo no encontrado")
+    
+    return {"status": "deleted", "device_id": device_id}
 
 
 @app.get("/api/contacts", response_model=List[ContactResponse])
