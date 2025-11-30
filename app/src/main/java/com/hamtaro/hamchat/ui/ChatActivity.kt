@@ -160,31 +160,40 @@ class ChatActivity : BaseActivity() {
 
             // Configure UI based on chat type
             if (isPrivateChat) {
-                chatTitle.text = "📝 Mis Notas Privadas"
-                messageEditText.hint = "Escribe una nota para ti mismo..."
+                chatTitle.text = "📝 Mis Notas"
+                messageEditText.hint = "Escribe una nota..."
                 sendButton.text = "💾"
                 clearPrivateButton.visibility = View.VISIBLE
                 clearPrivateButton.setOnClickListener {
                     confirmClearPrivateNotes()
                 }
             } else if (isGroupChat) {
-                // Chat grupal
-                chatTitle.text = "👥 $contactName"
+                // Chat grupal - solo nombre del grupo
+                chatTitle.text = contactName
                 messageEditText.hint = "Mensaje al grupo..."
                 sendButton.text = "📤"
                 clearPrivateButton.visibility = View.GONE
+                
+                // Mantener presionado el título para ver miembros
+                chatTitle.setOnLongClickListener {
+                    showGroupMembersDialog()
+                    true
+                }
+                chatTitle.setOnClickListener {
+                    Toast.makeText(this, "Mantén presionado para ver miembros", Toast.LENGTH_SHORT).show()
+                }
             } else {
                 clearPrivateButton.visibility = View.GONE
 
                 if (remoteUserId != null) {
-                    // Chat remoto entre usuarios Ham-Chat
-                    chatTitle.text = "$contactName"
+                    // Chat remoto - solo nombre del contacto
+                    chatTitle.text = contactName
                     messageEditText.hint = "Mensaje..."
                     sendButton.text = "📤"
                 } else {
-                    // Chat solo local en este dispositivo
-                    chatTitle.text = "$contactName (local)"
-                    messageEditText.hint = "Mensaje (solo local)..."
+                    // Chat solo local
+                    chatTitle.text = contactName
+                    messageEditText.hint = "Mensaje..."
                     sendButton.text = "💾"
                 }
             }
@@ -969,6 +978,288 @@ class ChatActivity : BaseActivity() {
         messagesScrollView.post {
             messagesScrollView.fullScroll(View.FOCUS_DOWN)
         }
+    }
+
+    // ========== Funciones de Grupos ==========
+    
+    /**
+     * Muestra diálogo con los miembros del grupo y opciones de gestión
+     */
+    private fun showGroupMembersDialog() {
+        if (!isGroupChat || groupId == null) return
+        
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "No hay sesión activa", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val authHeader = "Bearer $token"
+        
+        // Mostrar diálogo de carga
+        val loadingDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("👥 $contactName")
+            .setMessage("Cargando miembros...")
+            .setCancelable(true)
+            .create()
+        loadingDialog.show()
+        
+        // Obtener miembros del servidor
+        com.hamtaro.hamchat.network.HamChatApiClient.api.getGroupMembers(authHeader, groupId!!)
+            .enqueue(object : retrofit2.Callback<List<com.hamtaro.hamchat.network.GroupMemberDto>> {
+                override fun onResponse(
+                    call: retrofit2.Call<List<com.hamtaro.hamchat.network.GroupMemberDto>>,
+                    response: retrofit2.Response<List<com.hamtaro.hamchat.network.GroupMemberDto>>
+                ) {
+                    loadingDialog.dismiss()
+                    
+                    if (response.isSuccessful && response.body() != null) {
+                        val members = response.body()!!
+                        showMembersListDialog(members)
+                    } else {
+                        Toast.makeText(this@ChatActivity, "Error al cargar miembros", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<List<com.hamtaro.hamchat.network.GroupMemberDto>>, t: Throwable) {
+                    loadingDialog.dismiss()
+                    Toast.makeText(this@ChatActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Muestra la lista de miembros con opciones
+     */
+    private fun showMembersListDialog(members: List<com.hamtaro.hamchat.network.GroupMemberDto>) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentUserId = prefs.getInt("auth_user_id", -1)
+        
+        // Verificar si el usuario actual es admin
+        val currentUserMember = members.find { it.user_id == currentUserId }
+        val isAdmin = currentUserMember?.role == "admin"
+        
+        // Construir lista de miembros
+        val membersList = StringBuilder()
+        membersList.append("👥 Miembros (${members.size}):\n\n")
+        
+        for (member in members) {
+            val roleIcon = if (member.role == "admin") "👑" else "👤"
+            val youLabel = if (member.user_id == currentUserId) " (Tú)" else ""
+            membersList.append("$roleIcon ${member.username}$youLabel\n")
+            membersList.append("    📱 ${member.phone_e164}\n\n")
+        }
+        
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        
+        // Opción para agregar miembro (solo admin)
+        if (isAdmin) {
+            options.add("➕ Agregar miembro")
+            actions.add { showAddMemberDialog() }
+        }
+        
+        // Opción para eliminar miembro (solo admin)
+        if (isAdmin && members.size > 1) {
+            options.add("➖ Eliminar miembro")
+            actions.add { showRemoveMemberDialog(members.filter { it.user_id != currentUserId }) }
+        }
+        
+        // Opción para salir del grupo
+        options.add("🚪 Salir del grupo")
+        actions.add { confirmLeaveGroup() }
+        
+        // Cerrar
+        options.add("❌ Cerrar")
+        actions.add { /* No hacer nada */ }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("👥 $contactName")
+            .setMessage(membersList.toString())
+            .setItems(options.toTypedArray()) { _, which ->
+                if (which < actions.size) {
+                    actions[which]()
+                }
+            }
+            .show()
+    }
+    
+    /**
+     * Diálogo para agregar un nuevo miembro al grupo
+     */
+    private fun showAddMemberDialog() {
+        val input = android.widget.EditText(this).apply {
+            hint = "ID del usuario a agregar"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setPadding(50, 30, 50, 30)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("➕ Agregar miembro")
+            .setMessage("Ingresa el ID del usuario que deseas agregar al grupo:")
+            .setView(input)
+            .setPositiveButton("Agregar") { _, _ ->
+                val userId = input.text.toString().toIntOrNull()
+                if (userId != null) {
+                    addMemberToGroup(userId)
+                } else {
+                    Toast.makeText(this, "ID inválido", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Agrega un miembro al grupo
+     */
+    private fun addMemberToGroup(userId: Int) {
+        if (groupId == null) return
+        
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) return
+        
+        val authHeader = "Bearer $token"
+        val request = com.hamtaro.hamchat.network.AddGroupMemberRequest(user_id = userId)
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.addGroupMember(authHeader, groupId!!, request)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(
+                    call: retrofit2.Call<Map<String, Any>>,
+                    response: retrofit2.Response<Map<String, Any>>
+                ) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@ChatActivity, "✅ Miembro agregado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val error = when (response.code()) {
+                            403 -> "Solo los admins pueden agregar miembros"
+                            404 -> "Usuario no encontrado"
+                            400 -> "El usuario ya está en el grupo"
+                            else -> "Error al agregar miembro"
+                        }
+                        Toast.makeText(this@ChatActivity, error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@ChatActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Diálogo para seleccionar qué miembro eliminar
+     */
+    private fun showRemoveMemberDialog(members: List<com.hamtaro.hamchat.network.GroupMemberDto>) {
+        if (members.isEmpty()) {
+            Toast.makeText(this, "No hay miembros para eliminar", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val memberNames = members.map { "${it.username} (${it.phone_e164})" }.toTypedArray()
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("➖ Eliminar miembro")
+            .setItems(memberNames) { _, which ->
+                val member = members[which]
+                confirmRemoveMember(member)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Confirma la eliminación de un miembro
+     */
+    private fun confirmRemoveMember(member: com.hamtaro.hamchat.network.GroupMemberDto) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("⚠️ Eliminar miembro")
+            .setMessage("¿Seguro que quieres eliminar a ${member.username} del grupo?")
+            .setPositiveButton("Eliminar") { _, _ ->
+                removeMemberFromGroup(member.user_id)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Elimina un miembro del grupo
+     */
+    private fun removeMemberFromGroup(userId: Int) {
+        if (groupId == null) return
+        
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        if (token.isNullOrEmpty()) return
+        
+        val authHeader = "Bearer $token"
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.removeGroupMember(authHeader, groupId!!, userId)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(
+                    call: retrofit2.Call<Map<String, Any>>,
+                    response: retrofit2.Response<Map<String, Any>>
+                ) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@ChatActivity, "✅ Miembro eliminado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@ChatActivity, "Error al eliminar miembro", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@ChatActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Confirma salir del grupo
+     */
+    private fun confirmLeaveGroup() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🚪 Salir del grupo")
+            .setMessage("¿Seguro que quieres salir de \"$contactName\"?\n\nYa no podrás ver los mensajes del grupo.")
+            .setPositiveButton("Salir") { _, _ ->
+                leaveGroup()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Sale del grupo actual
+     */
+    private fun leaveGroup() {
+        if (groupId == null) return
+        
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentUserId = prefs.getInt("auth_user_id", -1)
+        val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken()
+        
+        if (token.isNullOrEmpty() || currentUserId == -1) return
+        
+        val authHeader = "Bearer $token"
+        
+        com.hamtaro.hamchat.network.HamChatApiClient.api.removeGroupMember(authHeader, groupId!!, currentUserId)
+            .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                override fun onResponse(
+                    call: retrofit2.Call<Map<String, Any>>,
+                    response: retrofit2.Response<Map<String, Any>>
+                ) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@ChatActivity, "Has salido del grupo", Toast.LENGTH_SHORT).show()
+                        finish() // Cerrar el chat
+                    } else {
+                        Toast.makeText(this@ChatActivity, "Error al salir del grupo", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@ChatActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
     }
 
     private fun startMessagePolling() {
