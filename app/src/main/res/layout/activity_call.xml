@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1A1A2E"
+    android:gravity="center_horizontal"
+    android:padding="24dp">
+
+    <!-- Avatar del contacto -->
+    <ImageView
+        android:id="@+id/iv_contact_avatar"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_marginTop="48dp"
+        android:src="@drawable/hamtaro_faded"
+        android:background="@drawable/circle_background"
+        android:padding="8dp"
+        android:scaleType="centerCrop" />
+
+    <!-- Nombre del contacto -->
+    <TextView
+        android:id="@+id/tv_contact_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Nombre del contacto"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <!-- Estado de la llamada -->
+    <TextView
+        android:id="@+id/tv_call_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Llamando..."
+        android:textColor="#AAAAAA"
+        android:textSize="16sp" />
+
+    <!-- Cronómetro de la llamada -->
+    <Chronometer
+        android:id="@+id/call_timer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textColor="#4CAF50"
+        android:textSize="24sp"
+        android:visibility="gone" />
+
+    <!-- Espacio flexible -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Layout para llamada entrante -->
+    <LinearLayout
+        android:id="@+id/layout_incoming_call"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:visibility="gone"
+        android:layout_marginBottom="48dp">
+
+        <!-- Botón rechazar -->
+        <Button
+            android:id="@+id/btn_decline"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="❌"
+            android:textSize="32sp"
+            android:background="@drawable/circle_button_red"
+            android:layout_marginEnd="48dp" />
+
+        <!-- Botón contestar -->
+        <Button
+            android:id="@+id/btn_answer"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="📞"
+            android:textSize="32sp"
+            android:background="@drawable/circle_button_green" />
+
+    </LinearLayout>
+
+    <!-- Layout para llamada activa -->
+    <LinearLayout
+        android:id="@+id/layout_active_call"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_marginBottom="32dp">
+
+        <!-- Botones de control -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="24dp">
+
+            <!-- Botón silenciar -->
+            <Button
+                android:id="@+id/btn_mute"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎤 Micrófono"
+                android:textSize="14sp"
+                android:padding="16dp"
+                android:layout_marginEnd="16dp"
+                android:backgroundTint="#333344" />
+
+            <!-- Botón altavoz -->
+            <Button
+                android:id="@+id/btn_speaker"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔈 Altavoz"
+                android:textSize="14sp"
+                android:padding="16dp"
+                android:backgroundTint="#333344" />
+
+        </LinearLayout>
+
+        <!-- Botón terminar llamada -->
+        <Button
+            android:id="@+id/btn_end_call"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="📵"
+            android:textSize="32sp"
+            android:background="@drawable/circle_button_red" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Terminar"
+            android:textColor="#FF5555"
+            android:textSize="14sp" />
+
+    </LinearLayout>
+
+</LinearLayout>

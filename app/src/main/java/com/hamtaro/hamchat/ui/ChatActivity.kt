@@ -68,11 +68,21 @@ data class ChatMessage(
     val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
     val isForwarded: Boolean = false,   // Si es un mensaje reenviado
     val isStarred: Boolean = false,     // Si está marcado como favorito/importante
-    val messageType: String = "text",   // "text", "voice", "image" o "system"
+    val messageType: String = "text",   // "text", "voice", "image", "document", "sticker", "poll" o "system"
     val audioData: String? = null,      // Base64 encoded audio
     val audioDuration: Int = 0,         // Duración en segundos
     val imageData: String? = null,      // Base64 encoded image
-    val isSystemMessage: Boolean = false // Mensaje del sistema (notificaciones)
+    val isSystemMessage: Boolean = false, // Mensaje del sistema (notificaciones)
+    // Nuevos campos para funciones avanzadas
+    val isEdited: Boolean = false,      // Si el mensaje fue editado
+    val isDeleted: Boolean = false,     // Si fue eliminado para todos
+    val editedAt: Long? = null,         // Timestamp de edición
+    val documentData: String? = null,   // Base64 encoded document
+    val documentName: String? = null,   // Nombre del documento
+    val documentSize: Long = 0,         // Tamaño del documento
+    val pollId: String? = null,         // ID de encuesta si es mensaje de encuesta
+    val mentions: List<String> = emptyList(), // Lista de usuarios mencionados
+    val scheduledFor: Long? = null      // Si es mensaje programado, hora de envío
 ) {
     /**
      * Obtiene el estado actual del mensaje para mostrar indicador visual
@@ -89,15 +99,26 @@ data class ChatMessage(
     }
     
     /**
-     * Obtiene el icono de estado del mensaje (estilo Ham-Chat)
+     * Obtiene el icono de estado del mensaje (estilo checks)
      */
     fun getStatusIcon(): String {
         return when (getStatus()) {
-            MessageStatus.SENDING -> "🕐"    // Reloj - enviando
-            MessageStatus.SENT -> "📤"       // Enviado
-            MessageStatus.DELIVERED -> "📬"  // Buzón con carta - entregado
-            MessageStatus.READ -> "👀"       // Ojos - leído
-            MessageStatus.FAILED -> "⚠️"    // Advertencia - error
+            MessageStatus.SENDING -> "⏳"    // Reloj - enviando
+            MessageStatus.SENT -> "✓"        // Un check gris - enviado al servidor
+            MessageStatus.DELIVERED -> "✓✓"  // Doble check gris - entregado
+            MessageStatus.READ -> "✓✓"       // Doble check azul - leído (color se aplica en UI)
+            MessageStatus.FAILED -> "⚠️"     // Advertencia - error
+        }
+    }
+    
+    /**
+     * Obtiene el color del estado (azul para leído)
+     */
+    fun getStatusColor(): Int {
+        return when (getStatus()) {
+            MessageStatus.READ -> 0xFF2196F3.toInt()      // Azul - leído
+            MessageStatus.FAILED -> 0xFFFF0000.toInt()    // Rojo - error
+            else -> 0xFF888888.toInt()                    // Gris - otros estados
         }
     }
 }
@@ -194,11 +215,18 @@ class ChatActivity : BaseActivity() {
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
+    private var pollingCounter = 0
     private val messagePollingRunnable = object : Runnable {
         override fun run() {
             if (remoteUserId != null) {
                 loadMessagesFromServer()
                 downloadPendingMedia()  // Descargar multimedia pendiente
+                
+                // Verificar estados de mensajes cada 3 ciclos (15 segundos)
+                pollingCounter++
+                if (pollingCounter % 3 == 0) {
+                    checkSentMessagesStatus()
+                }
             }
             messagePollingHandler.postDelayed(this, 5_000L) // cada 5 segundos
         }
@@ -405,6 +433,8 @@ class ChatActivity : BaseActivity() {
         startMessagePolling()
         // Cargar borrador guardado
         loadDraft()
+        // Marcar mensajes recibidos como leídos
+        markReceivedMessagesAsRead()
     }
 
     override fun onPause() {
@@ -665,6 +695,94 @@ class ChatActivity : BaseActivity() {
         }
         prefs.edit().putString(key, array.toString()).apply()
     }
+    
+    /**
+     * Marcar mensajes recibidos como leídos y notificar al servidor
+     */
+    private fun markReceivedMessagesAsRead() {
+        if (remoteUserId == null) return
+        
+        val securePrefs = com.hamtaro.hamchat.security.SecurePreferences(this)
+        val token = securePrefs.getAuthToken() ?: return
+        
+        // Obtener IDs de mensajes recibidos no leídos
+        val unreadMessageIds = messages
+            .filter { it.sender != "Yo" && it.serverId > 0 && !it.isRead }
+            .map { it.serverId }
+        
+        if (unreadMessageIds.isEmpty()) return
+        
+        // Notificar al servidor
+        Thread {
+            try {
+                val response = com.hamtaro.hamchat.network.HamChatApiClient.api
+                    .markMessagesRead(
+                        "Bearer $token",
+                        com.hamtaro.hamchat.network.MarkReadRequest(unreadMessageIds)
+                    ).execute()
+                
+                if (response.isSuccessful) {
+                    // Actualizar estado local
+                    runOnUiThread {
+                        messages.forEachIndexed { index, msg ->
+                            if (msg.sender != "Yo" && unreadMessageIds.contains(msg.serverId)) {
+                                messages[index] = msg.copy(isRead = true)
+                            }
+                        }
+                        saveMessages()
+                    }
+                }
+            } catch (e: Exception) {
+                // Silenciar errores de red
+            }
+        }.start()
+    }
+    
+    /**
+     * Verificar y actualizar estados de mensajes enviados
+     */
+    private fun checkSentMessagesStatus() {
+        if (remoteUserId == null) return
+        
+        val securePrefs = com.hamtaro.hamchat.security.SecurePreferences(this)
+        val token = securePrefs.getAuthToken() ?: return
+        
+        // Obtener mensajes enviados pendientes de confirmación
+        val pendingMessages = messages
+            .filter { it.sender == "Yo" && it.serverId > 0 && !it.isRead }
+        
+        if (pendingMessages.isEmpty()) return
+        
+        Thread {
+            for (msg in pendingMessages) {
+                try {
+                    val response = com.hamtaro.hamchat.network.HamChatApiClient.api
+                        .getMessageStatus("Bearer $token", msg.serverId)
+                        .execute()
+                    
+                    if (response.isSuccessful && response.body() != null) {
+                        val status = response.body()!!
+                        runOnUiThread {
+                            val index = messages.indexOfFirst { it.serverId == msg.serverId }
+                            if (index >= 0) {
+                                messages[index] = messages[index].copy(
+                                    isDelivered = status.is_delivered,
+                                    isRead = status.is_read
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continuar con el siguiente
+                }
+            }
+            
+            runOnUiThread {
+                saveMessages()
+                renderMessages(forceRender = true)
+            }
+        }.start()
+    }
 
 
     private fun renderMessages(forceRender: Boolean = false) {
@@ -824,7 +942,7 @@ class ChatActivity : BaseActivity() {
                         val imageView = android.widget.ImageView(this).apply {
                             setImageBitmap(bitmap)
                             adjustViewBounds = true
-                            maxWidth = (resources.displayMetrics.widthPixels * 0.6).toInt()
+                            maxWidth = (resources.displayMetrics.widthPixels * 0.75).toInt()
                             scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
                             setPadding(0, 4, 0, 4)
                             
@@ -938,7 +1056,9 @@ class ChatActivity : BaseActivity() {
         if (isMyMessage && remoteUserId != null) {
             val statusView = TextView(this).apply {
                 text = " ${message.getStatusIcon()}"
-                textSize = 10f
+                textSize = 11f
+                setTextColor(message.getStatusColor())
+                setTypeface(null, android.graphics.Typeface.BOLD)
             }
             bottomRow.addView(statusView)
         }
@@ -1919,8 +2039,10 @@ class ChatActivity : BaseActivity() {
                 setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
                 setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(48000)
-                setAudioSamplingRate(44100)
+                // Alta calidad para Redmi Note Pro
+                setAudioEncodingBitRate(128000)  // 128kbps - calidad alta
+                setAudioSamplingRate(48000)      // 48kHz - calidad CD
+                setAudioChannels(2)              // Estéreo
                 setOutputFile(currentAudioFile?.absolutePath)
                 prepare()
                 start()
@@ -2120,17 +2242,17 @@ class ChatActivity : BaseActivity() {
                 return
             }
             
-            // Redimensionar si es muy grande (max 800px)
-            val maxSize = 800
+            // Redimensionar si es muy grande (max 1920px para Redmi Note Pro)
+            val maxSize = 1920
             val scale = minOf(maxSize.toFloat() / originalBitmap.width, maxSize.toFloat() / originalBitmap.height, 1f)
             val newWidth = (originalBitmap.width * scale).toInt()
             val newHeight = (originalBitmap.height * scale).toInt()
             
             val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true)
             
-            // Comprimir a JPEG
+            // Comprimir a JPEG con alta calidad
             val outputStream = java.io.ByteArrayOutputStream()
-            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, outputStream)
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outputStream)
             val imageBytes = outputStream.toByteArray()
             
             // Convertir a Base64
@@ -3344,8 +3466,8 @@ class ChatActivity : BaseActivity() {
             }
             
             // Imagen del mapa estático (usando OpenStreetMap)
-            val mapWidth = 250
-            val mapHeight = 150
+            val mapWidth = 400
+            val mapHeight = 200
             val zoom = 15
             val mapUrl = "https://staticmap.openstreetmap.de/staticmap.php?center=$lat,$lon&zoom=$zoom&size=${mapWidth}x${mapHeight}&markers=$lat,$lon,red-pushpin"
             
@@ -3619,6 +3741,18 @@ class ChatActivity : BaseActivity() {
         options.add("📍 Compartir ubicación")
         actions.add { shareLocation() }
         
+        // Llamadas (solo para chats remotos)
+        if (remoteUserId != null) {
+            options.add("📞 Llamada telefónica")
+            actions.add { startPhoneCall() }
+            
+            options.add("🎤 Llamada de voz (WiFi)")
+            actions.add { startVoiceCall() }
+            
+            options.add("📹 Videollamada")
+            actions.add { startVideoCall() }
+        }
+        
         // Mensaje programado
         if (remoteUserId != null) {
             options.add("⏰ Programar mensaje")
@@ -3655,6 +3789,38 @@ class ChatActivity : BaseActivity() {
         options.add("📱 Mi código QR")
         actions.add { showMyQrCode() }
         
+        // Personalización
+        options.add("🎨 Cambiar fondo del chat")
+        actions.add { showChangeChatBackground() }
+        
+        options.add("👤 Foto del contacto")
+        actions.add { showChangeContactPhoto() }
+        
+        options.add("🎭 Emojis personalizados")
+        actions.add { showCustomEmojiPicker() }
+        
+        // Funciones avanzadas
+        options.add("🎨 Stickers")
+        actions.add { showStickerPicker() }
+        
+        options.add("📄 Documento")
+        actions.add { sendDocument() }
+        
+        options.add("📊 Crear encuesta")
+        actions.add { showCreatePollDialog() }
+        
+        options.add("⏰ Programar mensaje")
+        actions.add { showScheduleMessageDialog() }
+        
+        options.add("📌 Mensajes fijados")
+        actions.add { showPinnedMessages() }
+        
+        options.add("🔔 Silenciar chat")
+        actions.add { showMuteChatDialog() }
+        
+        options.add("🎨 Personalizar UI")
+        actions.add { showUISettingsDialog() }
+        
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("➕ Adjuntar")
             .setItems(options.toTypedArray()) { _, which ->
@@ -3662,6 +3828,41 @@ class ChatActivity : BaseActivity() {
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+    
+    // ========== Llamadas ==========
+    
+    /**
+     * Iniciar llamada telefónica tradicional
+     */
+    private fun startPhoneCall() {
+        if (remoteUserId == null) {
+            Toast.makeText(this, "Solo disponible para chats remotos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        CallActivity.startCall(this, contactId, contactName, remoteUserId!!, CallType.PHONE)
+    }
+    
+    /**
+     * Iniciar llamada de voz por WiFi/datos
+     */
+    private fun startVoiceCall() {
+        if (remoteUserId == null) {
+            Toast.makeText(this, "Solo disponible para chats remotos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        CallActivity.startCall(this, contactId, contactName, remoteUserId!!, CallType.VOICE_WIFI)
+    }
+    
+    /**
+     * Iniciar videollamada
+     */
+    private fun startVideoCall() {
+        if (remoteUserId == null) {
+            Toast.makeText(this, "Solo disponible para chats remotos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        CallActivity.startCall(this, contactId, contactName, remoteUserId!!, CallType.VIDEO)
     }
     
     // ========== Emojis Tipográficos ==========
@@ -4189,6 +4390,819 @@ class ChatActivity : BaseActivity() {
             canvas.drawText("Error QR", size / 2f, size / 2f, paint)
             bitmap
         }
+    }
+    
+    // ========== Personalización ==========
+    
+    private val themeManager by lazy { ThemeManager(this) }
+    
+    private val PICK_BACKGROUND_IMAGE = 5001
+    private val PICK_CONTACT_PHOTO = 5002
+    private val PICK_CUSTOM_EMOJI = 5003
+    
+    /**
+     * Mostrar opciones para cambiar fondo del chat
+     */
+    private fun showChangeChatBackground() {
+        val options = arrayOf(
+            "📷 Elegir de galería",
+            "🎨 Color sólido",
+            "🔄 Restaurar predeterminado"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Fondo del chat")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_PICK)
+                        intent.type = "image/*"
+                        startActivityForResult(intent, PICK_BACKGROUND_IMAGE)
+                    }
+                    1 -> showColorPickerForBackground()
+                    2 -> {
+                        themeManager.setChatBackground(contactId, null)
+                        applyChatBackground()
+                        Toast.makeText(this, "Fondo restaurado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Selector de color para fondo
+     */
+    private fun showColorPickerForBackground() {
+        val colors = listOf(
+            0xFFFFF8E1.toInt(), // Crema (default)
+            0xFFE3F2FD.toInt(), // Azul claro
+            0xFFE8F5E9.toInt(), // Verde claro
+            0xFFFCE4EC.toInt(), // Rosa claro
+            0xFFF3E5F5.toInt(), // Púrpura claro
+            0xFFFFF3E0.toInt(), // Naranja claro
+            0xFFECEFF1.toInt(), // Gris claro
+            0xFF1A1A2E.toInt(), // Azul oscuro
+            0xFF2D2D2D.toInt()  // Gris oscuro
+        )
+        
+        val colorNames = arrayOf(
+            "🧡 Crema (predeterminado)",
+            "💙 Azul claro",
+            "💚 Verde claro",
+            "💗 Rosa claro",
+            "💜 Púrpura claro",
+            "🧡 Naranja claro",
+            "🤍 Gris claro",
+            "🌙 Azul oscuro",
+            "⬛ Gris oscuro"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Elegir color")
+            .setItems(colorNames) { _, which ->
+                val color = colors[which]
+                // Crear bitmap de color sólido
+                val bitmap = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                bitmap.setPixel(0, 0, color)
+                val base64 = themeManager.bitmapToBase64(bitmap)
+                themeManager.setChatBackground(contactId, base64)
+                applyChatBackground()
+                Toast.makeText(this, "Fondo cambiado", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Aplicar fondo del chat
+     */
+    private fun applyChatBackground() {
+        val background = themeManager.getChatBackground(contactId)
+        if (background != null) {
+            val drawable = android.graphics.drawable.BitmapDrawable(resources, background)
+            messagesScrollView.background = drawable
+        } else {
+            messagesScrollView.setBackgroundColor(0xFFFFF8E1.toInt())
+        }
+    }
+    
+    /**
+     * Mostrar opciones para cambiar foto del contacto
+     */
+    private fun showChangeContactPhoto() {
+        val options = arrayOf(
+            "📷 Elegir de galería",
+            "📸 Tomar foto",
+            "🗑️ Eliminar foto"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("👤 Foto de $contactName")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_PICK)
+                        intent.type = "image/*"
+                        startActivityForResult(intent, PICK_CONTACT_PHOTO)
+                    }
+                    1 -> {
+                        val intent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+                        startActivityForResult(intent, PICK_CONTACT_PHOTO)
+                    }
+                    2 -> {
+                        themeManager.setContactPhoto(contactId, null)
+                        Toast.makeText(this, "Foto eliminada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostrar selector de emojis personalizados
+     */
+    private fun showCustomEmojiPicker() {
+        val customEmojis = themeManager.getCustomEmojis()
+        
+        val options = mutableListOf<String>()
+        options.add("➕ Crear nuevo emoji")
+        options.add("😀 Emojis estándar")
+        customEmojis.forEach { options.add("${it.name}") }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎭 Emojis")
+            .setItems(options.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> showCreateCustomEmoji()
+                    1 -> showStandardEmojiPicker()
+                    else -> {
+                        val emoji = customEmojis[which - 2]
+                        insertCustomEmoji(emoji)
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Crear emoji personalizado
+     */
+    private fun showCreateCustomEmoji() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_PICK)
+        intent.type = "image/*"
+        startActivityForResult(intent, PICK_CUSTOM_EMOJI)
+    }
+    
+    /**
+     * Mostrar selector de emojis estándar
+     */
+    private fun showStandardEmojiPicker() {
+        val emojis = arrayOf(
+            "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃",
+            "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😗", "😚", "😙",
+            "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔",
+            "🤐", "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "🤥",
+            "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮",
+            "🥳", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "😈", "👿",
+            "💀", "☠️", "💩", "🤡", "👹", "👺", "👻", "👽", "👾", "🤖",
+            "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔",
+            "👍", "👎", "👊", "✊", "🤛", "🤜", "🤞", "✌️", "🤟", "🤘",
+            "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✍️", "🤳"
+        )
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+        }
+        
+        // Grid de emojis
+        val gridLayout = android.widget.GridLayout(this).apply {
+            columnCount = 10
+        }
+        
+        var selectedEmoji = ""
+        
+        emojis.forEach { emoji ->
+            val btn = Button(this).apply {
+                text = emoji
+                textSize = 20f
+                setPadding(4, 4, 4, 4)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setOnClickListener {
+                    selectedEmoji = emoji
+                    // Insertar directamente
+                    val currentText = messageEditText.text.toString()
+                    val cursorPos = messageEditText.selectionStart
+                    val newText = currentText.substring(0, cursorPos) + emoji + currentText.substring(cursorPos)
+                    messageEditText.setText(newText)
+                    messageEditText.setSelection(cursorPos + emoji.length)
+                }
+            }
+            gridLayout.addView(btn)
+        }
+        
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400
+            )
+            addView(gridLayout)
+        }
+        
+        container.addView(scrollView)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("😀 Emojis")
+            .setView(container)
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    /**
+     * Insertar emoji personalizado en el mensaje
+     */
+    private fun insertCustomEmoji(emoji: ThemeManager.CustomEmoji) {
+        // Insertar como imagen inline (placeholder por ahora)
+        val currentText = messageEditText.text.toString()
+        messageEditText.setText("$currentText [:${emoji.name}:]")
+        Toast.makeText(this, "Emoji ${emoji.name} agregado", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Manejar resultado de selección de imagen para personalización
+     */
+    private fun handleCustomizationImageResult(requestCode: Int, data: android.content.Intent?) {
+        val uri = data?.data ?: return
+        
+        when (requestCode) {
+            PICK_BACKGROUND_IMAGE -> {
+                val bitmap = themeManager.loadBitmapFromUri(uri, 1920)
+                if (bitmap != null) {
+                    // Extraer colores y aplicar tema
+                    val colors = themeManager.extractColorsFromImage(bitmap)
+                    themeManager.saveThemeColors(colors)
+                    
+                    val base64 = themeManager.bitmapToBase64(bitmap, 70)
+                    themeManager.setChatBackground(contactId, base64)
+                    applyChatBackground()
+                    Toast.makeText(this, "✅ Fondo y colores aplicados", Toast.LENGTH_SHORT).show()
+                }
+            }
+            PICK_CONTACT_PHOTO -> {
+                val bitmap = themeManager.loadBitmapFromUri(uri, 256)
+                if (bitmap != null) {
+                    val base64 = themeManager.bitmapToBase64(bitmap, 85)
+                    themeManager.setContactPhoto(contactId, base64)
+                    Toast.makeText(this, "✅ Foto de contacto guardada", Toast.LENGTH_SHORT).show()
+                }
+            }
+            PICK_CUSTOM_EMOJI -> {
+                val bitmap = themeManager.loadBitmapFromUri(uri, 128)
+                if (bitmap != null) {
+                    showSaveCustomEmojiDialog(bitmap)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Diálogo para guardar emoji personalizado
+     */
+    private fun showSaveCustomEmojiDialog(bitmap: android.graphics.Bitmap) {
+        val input = EditText(this).apply {
+            hint = "Nombre del emoji (ej: hamtaro)"
+            setPadding(32, 24, 32, 24)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎭 Nuevo emoji")
+            .setView(input)
+            .setPositiveButton("Guardar") { _, _ ->
+                val name = input.text.toString().trim().ifEmpty { "emoji_${System.currentTimeMillis()}" }
+                val base64 = themeManager.bitmapToBase64(bitmap, 90)
+                val emoji = ThemeManager.CustomEmoji(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = name,
+                    imageBase64 = base64
+                )
+                themeManager.addCustomEmoji(emoji)
+                Toast.makeText(this, "✅ Emoji '$name' guardado", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    // ========== Funciones Avanzadas de Mensajería ==========
+    
+    private val advancedMessaging by lazy { AdvancedMessaging(this) }
+    private val mediaManager by lazy { MediaManager(this) }
+    private val uiCustomization by lazy { UICustomization(this) }
+    private val groupManager by lazy { GroupManager(this) }
+    
+    /**
+     * Mostrar selector de reacciones para un mensaje
+     */
+    private fun showReactionPicker(messageId: String) {
+        val reactions = AdvancedMessaging.REACTIONS
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(16, 16, 16, 16)
+        }
+        
+        reactions.forEach { emoji ->
+            val btn = Button(this).apply {
+                text = emoji
+                textSize = 24f
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setOnClickListener {
+                    val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+                    val oderId = prefs.getString("auth_user_id", "me") ?: "me"
+                    val username = prefs.getString("auth_username", "Usuario") ?: "Usuario"
+                    advancedMessaging.addReaction(messageId, emoji, oderId, username)
+                    Toast.makeText(this@ChatActivity, "Reacción $emoji agregada", Toast.LENGTH_SHORT).show()
+                    renderMessages()
+                }
+            }
+            container.addView(btn)
+        }
+        
+        val scrollView = android.widget.HorizontalScrollView(this).apply { addView(container) }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Reaccionar")
+            .setView(scrollView)
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostrar opciones de mensaje (editar, eliminar, fijar, etc.)
+     */
+    private fun showMessageOptions(message: ChatMessage) {
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        
+        // Reaccionar
+        options.add("😀 Reaccionar")
+        actions.add { showReactionPicker(message.localId) }
+        
+        // Responder
+        options.add("↩️ Responder")
+        actions.add { 
+            replyingToMessage = message
+            messageEditText.hint = "Respondiendo a: ${message.content.take(30)}..."
+        }
+        
+        // Reenviar
+        options.add("↪️ Reenviar")
+        actions.add { 
+            // Mostrar lista de contactos para reenviar
+            Toast.makeText(this, "Selecciona un contacto para reenviar", Toast.LENGTH_SHORT).show()
+        }
+        
+        // Copiar
+        options.add("📋 Copiar")
+        actions.add { 
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("mensaje", message.content))
+            Toast.makeText(this, "Copiado", Toast.LENGTH_SHORT).show()
+        }
+        
+        // Fijar (solo si no está fijado)
+        val isPinned = advancedMessaging.getPinnedMessages(contactId).any { it.messageId == message.localId }
+        if (!isPinned) {
+            options.add("📌 Fijar mensaje")
+            actions.add { 
+                val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+                val username = prefs.getString("auth_username", "Usuario") ?: "Usuario"
+                advancedMessaging.pinMessage(contactId, message.localId, message.content, username)
+                Toast.makeText(this, "Mensaje fijado", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            options.add("📌 Desfijar mensaje")
+            actions.add {
+                advancedMessaging.unpinMessage(contactId, message.localId)
+                Toast.makeText(this, "Mensaje desfijado", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
+        // Solo para mensajes propios
+        if (message.sender == "Yo") {
+            options.add("✏️ Editar")
+            actions.add { showEditMessageDialog(message) }
+            
+            options.add("🗑️ Eliminar para todos")
+            actions.add { deleteMessageForAll(message) }
+        }
+        
+        // Marcar como favorito
+        options.add(if (message.isStarred) "⭐ Quitar de favoritos" else "⭐ Marcar como favorito")
+        actions.add { toggleStarMessage(message) }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Opciones")
+            .setItems(options.toTypedArray()) { _, which ->
+                actions[which]()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Editar mensaje
+     */
+    private fun showEditMessageDialog(message: ChatMessage) {
+        val input = EditText(this).apply {
+            setText(message.content)
+            setPadding(32, 24, 32, 24)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("✏️ Editar mensaje")
+            .setView(input)
+            .setPositiveButton("Guardar") { _, _ ->
+                val newContent = input.text.toString().trim()
+                if (newContent.isNotEmpty() && newContent != message.content) {
+                    val index = messages.indexOfFirst { it.localId == message.localId }
+                    if (index >= 0) {
+                        messages[index] = message.copy(
+                            content = newContent,
+                            isEdited = true,
+                            editedAt = System.currentTimeMillis()
+                        )
+                        saveMessages()
+                        renderMessages()
+                        Toast.makeText(this, "Mensaje editado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Eliminar mensaje para todos
+     */
+    private fun deleteMessageForAll(message: ChatMessage) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🗑️ Eliminar mensaje")
+            .setMessage("¿Eliminar este mensaje para todos?")
+            .setPositiveButton("Eliminar") { _, _ ->
+                val index = messages.indexOfFirst { it.localId == message.localId }
+                if (index >= 0) {
+                    messages[index] = message.copy(
+                        content = "🚫 Mensaje eliminado",
+                        isDeleted = true,
+                        imageData = null,
+                        audioData = null,
+                        documentData = null
+                    )
+                    saveMessages()
+                    renderMessages()
+                    Toast.makeText(this, "Mensaje eliminado", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    // toggleStarMessage ya existe arriba, usar esa versión
+    
+    /**
+     * Mostrar mensajes fijados
+     */
+    private fun showPinnedMessages() {
+        val pinned = advancedMessaging.getPinnedMessages(contactId)
+        
+        if (pinned.isEmpty()) {
+            Toast.makeText(this, "No hay mensajes fijados", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val items = pinned.map { "📌 ${it.content.take(50)}..." }.toTypedArray()
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📌 Mensajes fijados")
+            .setItems(items) { _, which ->
+                // Scroll al mensaje
+                val pinnedMsg = pinned[which]
+                val msgIndex = messages.indexOfFirst { it.localId == pinnedMsg.messageId }
+                if (msgIndex >= 0) {
+                    // TODO: Scroll to message
+                    Toast.makeText(this, "Mensaje: ${pinnedMsg.content}", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    // showScheduleMessageDialog ya existe arriba, usar esa versión
+    
+    /**
+     * Crear encuesta
+     */
+    private fun showCreatePollDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 24)
+        }
+        
+        val questionInput = EditText(this).apply {
+            hint = "Pregunta de la encuesta"
+            setPadding(16, 16, 16, 16)
+        }
+        container.addView(questionInput)
+        
+        val optionsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        
+        val optionInputs = mutableListOf<EditText>()
+        
+        fun addOptionInput() {
+            val input = EditText(this).apply {
+                hint = "Opción ${optionInputs.size + 1}"
+                setPadding(16, 8, 16, 8)
+            }
+            optionInputs.add(input)
+            optionsContainer.addView(input)
+        }
+        
+        // Agregar 2 opciones iniciales
+        addOptionInput()
+        addOptionInput()
+        
+        container.addView(optionsContainer)
+        
+        val addOptionBtn = Button(this).apply {
+            text = "+ Agregar opción"
+            setOnClickListener {
+                if (optionInputs.size < 10) addOptionInput()
+            }
+        }
+        container.addView(addOptionBtn)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("📊 Crear encuesta")
+            .setView(container)
+            .setPositiveButton("Crear") { _, _ ->
+                val question = questionInput.text.toString().trim()
+                val options = optionInputs.mapNotNull { 
+                    val text = it.text.toString().trim()
+                    if (text.isNotEmpty()) text else null
+                }
+                
+                if (question.isNotEmpty() && options.size >= 2) {
+                    val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+                    val username = prefs.getString("auth_username", "Usuario") ?: "Usuario"
+                    val poll = advancedMessaging.createPoll(contactId, question, options, username)
+                    
+                    // Enviar como mensaje de encuesta
+                    val pollContent = "📊 ENCUESTA: $question\n" + options.mapIndexed { i, opt -> 
+                        "  ${i + 1}. $opt" 
+                    }.joinToString("\n")
+                    
+                    val pollMessage = ChatMessage(
+                        sender = "Yo",
+                        content = pollContent,
+                        timestamp = System.currentTimeMillis(),
+                        localId = java.util.UUID.randomUUID().toString(),
+                        messageType = "poll",
+                        pollId = poll.id
+                    )
+                    messages.add(pollMessage)
+                    saveMessages()
+                    renderMessages()
+                    scrollToBottom()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostrar selector de stickers
+     */
+    private fun showStickerPicker() {
+        val packs = mediaManager.getStickerPacks()
+        
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+        }
+        
+        // Stickers recientes
+        val recent = mediaManager.getRecentStickers()
+        if (recent.isNotEmpty()) {
+            val recentLabel = TextView(this).apply {
+                text = "Recientes"
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 8)
+            }
+            container.addView(recentLabel)
+            
+            val recentGrid = createStickerGrid(recent)
+            container.addView(recentGrid)
+        }
+        
+        // Packs
+        packs.forEach { pack ->
+            val packLabel = TextView(this).apply {
+                text = pack.name
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, 16, 0, 8)
+            }
+            container.addView(packLabel)
+            
+            val grid = createStickerGrid(pack.stickers)
+            container.addView(grid)
+        }
+        
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                500
+            )
+            addView(container)
+        }
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Stickers")
+            .setView(scrollView)
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+    
+    private fun createStickerGrid(stickers: List<MediaManager.Sticker>): android.widget.GridLayout {
+        return android.widget.GridLayout(this).apply {
+            columnCount = 5
+            stickers.forEach { sticker ->
+                val btn = Button(this@ChatActivity).apply {
+                    text = sticker.emoji ?: "📷"
+                    textSize = 28f
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    setOnClickListener {
+                        sendSticker(sticker)
+                        mediaManager.addRecentSticker(sticker)
+                    }
+                }
+                addView(btn)
+            }
+        }
+    }
+    
+    private fun sendSticker(sticker: MediaManager.Sticker) {
+        val content = sticker.emoji ?: "[Sticker]"
+        val message = ChatMessage(
+            sender = "Yo",
+            content = content,
+            timestamp = System.currentTimeMillis(),
+            localId = java.util.UUID.randomUUID().toString(),
+            messageType = "sticker"
+        )
+        messages.add(message)
+        saveMessages()
+        renderMessages()
+        scrollToBottom()
+    }
+    
+    /**
+     * Enviar documento
+     */
+    private fun sendDocument() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            putExtra(android.content.Intent.EXTRA_MIME_TYPES, arrayOf(
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/plain"
+            ))
+        }
+        startActivityForResult(intent, 6001)
+    }
+    
+    /**
+     * Silenciar chat
+     */
+    private fun showMuteChatDialog() {
+        val options = arrayOf(
+            "🔕 8 horas",
+            "🔕 1 semana",
+            "🔕 Siempre",
+            "🔔 Activar sonido"
+        )
+        
+        val durations = listOf(
+            8 * 60 * 60 * 1000L,
+            7 * 24 * 60 * 60 * 1000L,
+            -1L,
+            0L
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🔔 Notificaciones")
+            .setItems(options) { _, which ->
+                if (durations[which] == 0L) {
+                    advancedMessaging.unmuteChat(contactId)
+                    Toast.makeText(this, "🔔 Notificaciones activadas", Toast.LENGTH_SHORT).show()
+                } else {
+                    advancedMessaging.muteChat(contactId, durations[which])
+                    Toast.makeText(this, "🔕 Chat silenciado", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostrar configuración de UI
+     */
+    private fun showUISettingsDialog() {
+        val options = arrayOf(
+            "🌙 Modo oscuro",
+            "☀️ Modo claro",
+            "🐹 Tema Hamtaro",
+            "💬 Estilo de burbujas",
+            "🔤 Fuente y tamaño",
+            "🎨 Presets de tema"
+        )
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Personalización")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        uiCustomization.setThemeMode(UICustomization.ThemeMode.DARK)
+                        Toast.makeText(this, "Modo oscuro activado", Toast.LENGTH_SHORT).show()
+                        recreate()
+                    }
+                    1 -> {
+                        uiCustomization.setThemeMode(UICustomization.ThemeMode.LIGHT)
+                        Toast.makeText(this, "Modo claro activado", Toast.LENGTH_SHORT).show()
+                        recreate()
+                    }
+                    2 -> {
+                        uiCustomization.setThemeMode(UICustomization.ThemeMode.HAMTARO)
+                        Toast.makeText(this, "Tema Hamtaro activado", Toast.LENGTH_SHORT).show()
+                        recreate()
+                    }
+                    3 -> showBubbleStylePicker()
+                    4 -> showFontPicker()
+                    5 -> showThemePresets()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun showBubbleStylePicker() {
+        val styles = UICustomization.BubbleStyle.values()
+        val names = arrayOf("Redondeado", "Cuadrado", "Moderno", "Clásico", "Minimalista")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("💬 Estilo de burbujas")
+            .setItems(names) { _, which ->
+                uiCustomization.setBubbleStyle(styles[which])
+                renderMessages()
+            }
+            .show()
+    }
+    
+    private fun showFontPicker() {
+        val fonts = UICustomization.FontStyle.values()
+        val names = arrayOf("Por defecto", "Serif", "Monospace", "Casual", "Redondeada")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🔤 Fuente")
+            .setItems(names) { _, which ->
+                uiCustomization.setFontStyle(fonts[which])
+                renderMessages()
+            }
+            .show()
+    }
+    
+    private fun showThemePresets() {
+        val presets = uiCustomization.PRESETS
+        val names = presets.map { it.name }.toTypedArray()
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🎨 Presets")
+            .setItems(names) { _, which ->
+                uiCustomization.applyPreset(presets[which])
+                Toast.makeText(this, "Tema '${presets[which].name}' aplicado", Toast.LENGTH_SHORT).show()
+                recreate()
+            }
+            .show()
     }
 }
 

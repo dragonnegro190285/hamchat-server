@@ -44,13 +44,27 @@
             android:layout_gravity="center_horizontal"
             android:paddingTop="8dp" />
 
-        <Button
-            android:id="@+id/btn_new_chat"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Nuevo chat"
-            android:layout_gravity="center_horizontal"
-            android:paddingTop="16dp" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingTop="8dp">
+
+            <Button
+                android:id="@+id/btn_new_chat"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💬 Nuevo chat"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btn_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📱 Estados" />
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/layout_chats_list"

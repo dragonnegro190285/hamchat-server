@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.google.gms.google-services'
 }
 
 repositories {
@@ -11,14 +12,14 @@ repositories {
 
 android {
     namespace 'com.hamtaro.hamchat'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
-        applicationId "com.hamtaro.hamchat"
-        minSdk 29  // Android 10 (Q) - Requerido para Keitai 4
-        targetSdk 34  // Android 14
+        applicationId "com.hamtaro.hamchat.pro"  // Diferente ID para coexistir con versión Lite
+        minSdk 33  // Android 13+ (Redmi Note Pro, Honor X9, Samsung A16)
+        targetSdk 35  // Android 15
         versionCode 1
-        versionName "1.0"
+        versionName "1.0-pro"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         
@@ -145,6 +146,18 @@ dependencies {
     
     // 📱 QR Code - ZXing (generar)
     implementation 'com.google.zxing:core:3.5.1'
+    
+    // 🎨 Palette para extraer colores de imágenes
+    implementation 'androidx.palette:palette-ktx:1.0.0'
+    
+    // 😀 Emoji support
+    implementation 'androidx.emoji2:emoji2:1.4.0'
+    implementation 'androidx.emoji2:emoji2-views:1.4.0'
+    
+    // 🔔 Firebase Cloud Messaging (notificaciones push)
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+    implementation 'com.google.firebase:firebase-analytics-ktx'
     
     // Testing básico
     testImplementation 'junit:junit:4.13.2'

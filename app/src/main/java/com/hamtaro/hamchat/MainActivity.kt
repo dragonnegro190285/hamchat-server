@@ -2758,6 +2758,12 @@ class MainActivity : BaseActivity() {
         addFriendRemoteButton.setOnClickListener {
             showAddRemoteFriendDialog()
         }
+        
+        // Botón de Estados
+        val statusButton: Button? = findViewById(R.id.btn_status)
+        statusButton?.setOnClickListener {
+            startActivity(Intent(this, com.hamtaro.hamchat.ui.StatusActivity::class.java))
+        }
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val username = prefs.getString(KEY_AUTH_USERNAME, null)

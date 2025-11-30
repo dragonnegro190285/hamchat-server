@@ -74,6 +74,18 @@ data class MarkDeliveredRequest(
     val message_ids: List<Int>
 )
 
+data class MarkReadRequest(
+    val message_ids: List<Int>
+)
+
+data class MessageStatusUpdate(
+    val message_id: Int,
+    val is_delivered: Boolean,
+    val is_read: Boolean,
+    val delivered_at: String?,
+    val read_at: String?
+)
+
 data class UserLookupResponse(
     val id: Int,
     val username: String,
@@ -270,6 +282,18 @@ interface HamChatApi {
         @Header("Authorization") authHeader: String,
         @Body body: MarkDeliveredRequest
     ): Call<Map<String, Any>>
+    
+    @POST("messages/mark-read")
+    fun markMessagesRead(
+        @Header("Authorization") authHeader: String,
+        @Body body: MarkReadRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("messages/status/{message_id}")
+    fun getMessageStatus(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("message_id") messageId: Int
+    ): Call<MessageStatusUpdate>
     
     @PUT("messages/{message_id}")
     fun editMessage(

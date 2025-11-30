@@ -29,6 +29,21 @@
     <!-- 📍 Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    
+    <!-- 📞 Call permissions -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    
+    <!-- 📹 Camera for video calls -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    
+    <!-- Features -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -104,11 +119,56 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.HamChat.NoActionBar" />
 
+        <activity
+            android:name=".ui.CallActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.StatusActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.StatusViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.HamChat.NoActionBar"
+            android:screenOrientation="portrait" />
+
         <!-- 🖥️ Embedded Server Service -->
         <service
             android:name=".server.HamChatServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 🔔 Firebase Cloud Messaging Service -->
+        <service
+            android:name=".service.HamChatMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- FCM Default notification channel -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="hamchat_messages" />
+
+        <!-- FCM Default notification icon -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_launcher_foreground" />
+
+        <!-- FCM Default notification color -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/orange_primary" />
 
     </application>
 
