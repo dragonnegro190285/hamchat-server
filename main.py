@@ -826,6 +826,120 @@ def get_cleanup_stats(current_user_id: int = Depends(get_user_id_from_token)):
     return stats
 
 
+# ---------- Full Backup endpoint ----------
+
+
+class FullBackupResponse(BaseModel):
+    user_id: int
+    username: str
+    phone_e164: str
+    contacts: List[dict]
+    messages: List[dict]
+    total_messages: int
+    total_contacts: int
+    backup_date: str
+
+
+@app.get("/api/backup/full")
+def get_full_backup(current_user_id: int = Depends(get_user_id_from_token)):
+    """
+    Obtener backup completo del usuario:
+    - Todos los contactos (usuarios con los que ha chateado)
+    - Todos los mensajes de todas las conversaciones
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Obtener datos del usuario actual
+    cur.execute("SELECT username, phone_e164 FROM users WHERE id = ?", (current_user_id,))
+    user_row = cur.fetchone()
+    if not user_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="user not found")
+    
+    # Obtener TODOS los mensajes del usuario (enviados y recibidos)
+    cur.execute(
+        """
+        SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at, m.sent_at, m.local_id,
+               sender.username as sender_name, sender.phone_e164 as sender_phone,
+               recipient.username as recipient_name, recipient.phone_e164 as recipient_phone
+        FROM messages m
+        JOIN users sender ON sender.id = m.sender_id
+        JOIN users recipient ON recipient.id = m.recipient_id
+        WHERE m.sender_id = ? OR m.recipient_id = ?
+        ORDER BY m.created_at ASC
+        """,
+        (current_user_id, current_user_id)
+    )
+    message_rows = cur.fetchall()
+    
+    messages = []
+    contact_ids = set()
+    
+    for r in message_rows:
+        messages.append({
+            "id": r["id"],
+            "sender_id": r["sender_id"],
+            "recipient_id": r["recipient_id"],
+            "content": r["content"],
+            "created_at": r["created_at"],
+            "sent_at": r["sent_at"],
+            "local_id": r["local_id"],
+            "sender_name": r["sender_name"],
+            "sender_phone": r["sender_phone"],
+            "recipient_name": r["recipient_name"],
+            "recipient_phone": r["recipient_phone"],
+            "is_outgoing": r["sender_id"] == current_user_id
+        })
+        
+        # Recopilar IDs de contactos
+        if r["sender_id"] != current_user_id:
+            contact_ids.add(r["sender_id"])
+        if r["recipient_id"] != current_user_id:
+            contact_ids.add(r["recipient_id"])
+    
+    # Obtener información de todos los contactos
+    contacts = []
+    if contact_ids:
+        placeholders = ",".join("?" for _ in contact_ids)
+        cur.execute(
+            f"SELECT id, username, phone_e164 FROM users WHERE id IN ({placeholders})",
+            tuple(contact_ids)
+        )
+        contact_rows = cur.fetchall()
+        
+        for c in contact_rows:
+            # Contar mensajes con este contacto
+            cur.execute(
+                """
+                SELECT COUNT(*) as msg_count FROM messages 
+                WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+                """,
+                (current_user_id, c["id"], c["id"], current_user_id)
+            )
+            msg_count = cur.fetchone()["msg_count"]
+            
+            contacts.append({
+                "id": c["id"],
+                "username": c["username"],
+                "phone_e164": c["phone_e164"],
+                "message_count": msg_count
+            })
+    
+    conn.close()
+    
+    return {
+        "user_id": current_user_id,
+        "username": user_row["username"],
+        "phone_e164": user_row["phone_e164"],
+        "contacts": contacts,
+        "messages": messages,
+        "total_messages": len(messages),
+        "total_contacts": len(contacts),
+        "backup_date": now_iso()
+    }
+
+
 @app.get("/api/users/by-username/{username}", response_model=UserSearchResponse)
 def get_user_by_username(username: str) -> UserSearchResponse:
     conn = get_db()
