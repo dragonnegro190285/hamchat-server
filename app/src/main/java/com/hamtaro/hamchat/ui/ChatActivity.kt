@@ -56,7 +56,10 @@ data class ChatMessage(
     val replyToId: String? = null,      // ID del mensaje al que responde (null si no es respuesta)
     val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
     val isForwarded: Boolean = false,   // Si es un mensaje reenviado
-    val isStarred: Boolean = false      // Si está marcado como favorito/importante
+    val isStarred: Boolean = false,     // Si está marcado como favorito/importante
+    val messageType: String = "text",   // "text" o "voice"
+    val audioData: String? = null,      // Base64 encoded audio
+    val audioDuration: Int = 0          // Duración en segundos
 ) {
     /**
      * Obtiene el estado actual del mensaje para mostrar indicador visual
@@ -120,6 +123,15 @@ class ChatActivity : BaseActivity() {
     // Control de renderizado para evitar parpadeo
     private var lastRenderedMessageCount = 0
     private var lastRenderedMessageHash = 0
+    
+    // Sistema de mensajes de voz
+    private var mediaRecorder: android.media.MediaRecorder? = null
+    private var mediaPlayer: android.media.MediaPlayer? = null
+    private var isRecording = false
+    private var recordingStartTime = 0L
+    private var currentAudioFile: java.io.File? = null
+    private var voiceButton: Button? = null
+    private var recordingIndicator: TextView? = null
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -161,6 +173,11 @@ class ChatActivity : BaseActivity() {
             sendButton = findViewById(R.id.btn_send)
             chatTitle = findViewById(R.id.tv_chat_title)
             clearPrivateButton = findViewById(R.id.btn_clear_private)
+            voiceButton = findViewById(R.id.btn_voice)
+            recordingIndicator = findViewById(R.id.tv_recording_indicator)
+            
+            // Configurar botón de voz (mantener presionado para grabar)
+            setupVoiceButton()
 
             // Configure UI based on chat type
             if (isPrivateChat) {
@@ -697,14 +714,45 @@ class ChatActivity : BaseActivity() {
             bubbleLayout.addView(senderView)
         }
 
-        // Contenido del mensaje
-        val contentView = TextView(this).apply {
-            text = message.content
-            textSize = 15f
-            setTextColor(0xFF1A1A1A.toInt())
-            setTextIsSelectable(true) // Permitir seleccionar texto
+        // Contenido del mensaje (texto o voz)
+        if (message.messageType == "voice" && !message.audioData.isNullOrEmpty()) {
+            // Mensaje de voz - mostrar botón de reproducir
+            val voiceContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            
+            val playButton = Button(this).apply {
+                text = "▶️"
+                textSize = 18f
+                setPadding(8, 4, 8, 4)
+                setOnClickListener {
+                    text = "⏸️"
+                    playVoiceMessage(message.audioData)
+                    postDelayed({ text = "▶️" }, (message.audioDuration * 1000 + 500).toLong())
+                }
+            }
+            
+            val durationText = TextView(this).apply {
+                text = "🎤 ${message.audioDuration}s"
+                textSize = 14f
+                setTextColor(0xFF1A1A1A.toInt())
+                setPadding(8, 0, 0, 0)
+            }
+            
+            voiceContainer.addView(playButton)
+            voiceContainer.addView(durationText)
+            bubbleLayout.addView(voiceContainer)
+        } else {
+            // Mensaje de texto normal
+            val contentView = TextView(this).apply {
+                text = message.content
+                textSize = 15f
+                setTextColor(0xFF1A1A1A.toInt())
+                setTextIsSelectable(true)
+            }
+            bubbleLayout.addView(contentView)
         }
-        bubbleLayout.addView(contentView)
         
         // Fila inferior: hora + estado + estrella
         val bottomRow = LinearLayout(this).apply {
@@ -1576,6 +1624,148 @@ class ChatActivity : BaseActivity() {
         fun deleteDraft(context: Context, contactId: String) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().remove(KEY_DRAFT_PREFIX + contactId).apply()
+        }
+    }
+    
+    // ========== Sistema de Mensajes de Voz ==========
+    
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun setupVoiceButton() {
+        voiceButton?.setOnTouchListener { _, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    startRecording()
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    stopRecordingAndSend()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+    
+    private fun startRecording() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 100)
+                return
+            }
+        }
+        
+        try {
+            val audioDir = java.io.File(cacheDir, "voice_messages")
+            if (!audioDir.exists()) audioDir.mkdirs()
+            currentAudioFile = java.io.File(audioDir, "voice_${System.currentTimeMillis()}.m4a")
+            
+            mediaRecorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                android.media.MediaRecorder(this)
+            } else {
+                @Suppress("DEPRECATION")
+                android.media.MediaRecorder()
+            }
+            
+            mediaRecorder?.apply {
+                setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(64000)
+                setAudioSamplingRate(44100)
+                setOutputFile(currentAudioFile?.absolutePath)
+                prepare()
+                start()
+            }
+            
+            isRecording = true
+            recordingStartTime = System.currentTimeMillis()
+            recordingIndicator?.visibility = View.VISIBLE
+            voiceButton?.text = "🔴"
+            
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al grabar", Toast.LENGTH_SHORT).show()
+            isRecording = false
+        }
+    }
+    
+    private fun stopRecordingAndSend() {
+        if (!isRecording) return
+        
+        try {
+            mediaRecorder?.stop()
+            mediaRecorder?.release()
+            mediaRecorder = null
+            isRecording = false
+            recordingIndicator?.visibility = View.GONE
+            voiceButton?.text = "🎤"
+            
+            val duration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
+            if (duration < 1) {
+                currentAudioFile?.delete()
+                return
+            }
+            
+            val audioFile = currentAudioFile
+            if (audioFile != null && audioFile.exists()) {
+                val audioBase64 = android.util.Base64.encodeToString(audioFile.readBytes(), android.util.Base64.NO_WRAP)
+                sendVoiceMessage(audioBase64, duration)
+                audioFile.delete()
+            }
+        } catch (e: Exception) {
+            recordingIndicator?.visibility = View.GONE
+            voiceButton?.text = "🎤"
+        }
+    }
+    
+    private fun sendVoiceMessage(audioBase64: String, duration: Int) {
+        val localId = java.util.UUID.randomUUID().toString()
+        val voiceMessage = ChatMessage(
+            sender = "Yo",
+            content = "🎤 Mensaje de voz (${duration}s)",
+            timestamp = System.currentTimeMillis(),
+            localId = localId,
+            messageType = "voice",
+            audioData = audioBase64,
+            audioDuration = duration
+        )
+        
+        messages.add(voiceMessage)
+        saveMessages()
+        renderMessages(forceRender = true)
+        
+        if (remoteUserId != null) {
+            val token = com.hamtaro.hamchat.security.SecurePreferences(this).getAuthToken() ?: return
+            val request = com.hamtaro.hamchat.network.MessageRequest(
+                recipient_id = remoteUserId!!,
+                content = voiceMessage.content,
+                local_id = localId,
+                message_type = "voice",
+                audio_data = audioBase64,
+                audio_duration = duration
+            )
+            com.hamtaro.hamchat.network.HamChatApiClient.api.sendMessage("Bearer $token", request)
+                .enqueue(object : retrofit2.Callback<com.hamtaro.hamchat.network.MessageDto> {
+                    override fun onResponse(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, response: retrofit2.Response<com.hamtaro.hamchat.network.MessageDto>) {}
+                    override fun onFailure(call: retrofit2.Call<com.hamtaro.hamchat.network.MessageDto>, t: Throwable) {}
+                })
+        }
+    }
+    
+    private fun playVoiceMessage(audioData: String) {
+        try {
+            val audioBytes = android.util.Base64.decode(audioData, android.util.Base64.NO_WRAP)
+            val tempFile = java.io.File(cacheDir, "temp_voice.m4a")
+            tempFile.writeBytes(audioBytes)
+            
+            mediaPlayer?.release()
+            mediaPlayer = android.media.MediaPlayer().apply {
+                setDataSource(tempFile.absolutePath)
+                prepare()
+                start()
+                setOnCompletionListener { tempFile.delete() }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al reproducir", Toast.LENGTH_SHORT).show()
         }
     }
 }
