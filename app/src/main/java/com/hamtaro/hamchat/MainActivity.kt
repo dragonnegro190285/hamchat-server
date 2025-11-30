@@ -52,6 +52,8 @@ import androidx.core.content.ContextCompat
 import android.widget.ArrayAdapter
 import android.widget.Spinner
 import androidx.appcompat.app.AlertDialog
+import com.hamtaro.hamchat.network.DeleteContactRequest
+import com.hamtaro.hamchat.network.ContactDeletedNotification
 
 // ContactItem para UI de MainActivity (diferente de model.Contact)
 data class ContactItem(
@@ -176,6 +178,7 @@ class MainActivity : BaseActivity() {
         startIdleTimer()
         startInboxPolling()
         startContactPromotionIfNeeded()
+        checkDeletedContactNotifications()
     }
 
     override fun onPause() {
@@ -916,6 +919,154 @@ class MainActivity : BaseActivity() {
                 showRegistrationDialog()
             }
         }
+    }
+    
+    /**
+     * Verificar si hay notificaciones de contactos que te han eliminado
+     */
+    private fun checkDeletedContactNotifications() {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) return
+        
+        HamChatApiClient.api.getDeletedContactNotifications("Bearer $token")
+            .enqueue(object : Callback<List<ContactDeletedNotification>> {
+                override fun onResponse(
+                    call: Call<List<ContactDeletedNotification>>,
+                    response: Response<List<ContactDeletedNotification>>
+                ) {
+                    if (response.isSuccessful) {
+                        val notifications = response.body() ?: emptyList()
+                        notifications.forEach { notification ->
+                            showContactDeletedDialog(notification)
+                        }
+                    }
+                }
+                
+                override fun onFailure(call: Call<List<ContactDeletedNotification>>, t: Throwable) {
+                    // Silencioso - no mostrar error
+                }
+            })
+    }
+    
+    /**
+     * Mostrar diálogo cuando un contacto te ha eliminado
+     */
+    private fun showContactDeletedDialog(notification: ContactDeletedNotification) {
+        AlertDialog.Builder(this)
+            .setTitle("📵 Contacto eliminado")
+            .setMessage("""
+                ${notification.deletedByUsername} (${notification.deletedByPhone}) te ha eliminado de sus contactos.
+                
+                ⚠️ Ya no puedes enviar ni recibir mensajes con este contacto.
+                
+                ¿Qué deseas hacer con el historial de conversaciones?
+                
+                • Conservar: Mantener los mensajes para referencia
+                • Eliminar: Borrar el historial de esta conversación
+            """.trimIndent())
+            .setCancelable(false)
+            .setPositiveButton("📁 Conservar historial") { _, _ ->
+                // Marcar notificación como vista, conservar historial
+                markNotificationAsSeen(notification.id)
+                Toast.makeText(this, "Historial conservado en tu backup", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("🗑️ Eliminar historial") { _, _ ->
+                // Marcar notificación como vista y eliminar mensajes locales
+                markNotificationAsSeen(notification.id)
+                deleteLocalMessagesWithContact(notification.deletedByUserId)
+                Toast.makeText(this, "Historial eliminado", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+    
+    /**
+     * Marcar notificación como vista en el servidor
+     */
+    private fun markNotificationAsSeen(notificationId: Int) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken() ?: return
+        
+        HamChatApiClient.api.markNotificationSeen("Bearer $token", notificationId)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    // OK
+                }
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    // Silencioso
+                }
+            })
+    }
+    
+    /**
+     * Eliminar mensajes locales con un contacto específico (del backup)
+     */
+    private fun deleteLocalMessagesWithContact(contactUserId: Int) {
+        try {
+            val backups = WeeklyBackupWorker.listLocalBackups(this)
+            
+            backups.forEach { backupInfo ->
+                val backupData = WeeklyBackupWorker.restoreLocalBackup(this, backupInfo.fileName)
+                if (backupData != null) {
+                    val messages = backupData.optJSONArray("messages") ?: return@forEach
+                    val filteredMessages = org.json.JSONArray()
+                    
+                    // Filtrar mensajes que NO son con el contacto eliminado
+                    for (i in 0 until messages.length()) {
+                        val msg = messages.getJSONObject(i)
+                        val senderId = msg.optInt("sender_id", -1)
+                        val recipientId = msg.optInt("recipient_id", -1)
+                        
+                        if (senderId != contactUserId && recipientId != contactUserId) {
+                            filteredMessages.put(msg)
+                        }
+                    }
+                    
+                    // Actualizar backup con mensajes filtrados
+                    backupData.put("messages", filteredMessages)
+                    backupData.put("total_messages", filteredMessages.length())
+                    
+                    // Guardar backup actualizado
+                    val folder = WeeklyBackupWorker.getBackupFolder(this)
+                    val file = java.io.File(folder, backupInfo.fileName)
+                    file.writeText(backupData.toString(2))
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error eliminando historial: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Eliminar contacto y notificar al otro usuario
+     */
+    fun deleteContactWithNotification(contactUserId: Int, onComplete: () -> Unit) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "No autenticado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val request = DeleteContactRequest(contactUserId)
+        
+        HamChatApiClient.api.deleteContactWithNotification("Bearer $token", request)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "Contacto eliminado. Se notificó al usuario.", Toast.LENGTH_SHORT).show()
+                        onComplete()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error eliminando contacto", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
     }
 
     private fun showRegistrationDialog() {

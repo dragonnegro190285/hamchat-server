@@ -430,7 +430,39 @@ interface HamChatApi {
     fun getFullBackup(
         @Header("Authorization") token: String
     ): Call<FullBackupResponse>
+    
+    // ========== Contact deletion with notification ==========
+    
+    @POST("contacts/delete")
+    fun deleteContactWithNotification(
+        @Header("Authorization") token: String,
+        @Body body: DeleteContactRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("contacts/deleted-notifications")
+    fun getDeletedContactNotifications(
+        @Header("Authorization") token: String
+    ): Call<List<ContactDeletedNotification>>
+    
+    @POST("contacts/deleted-notifications/{notification_id}/seen")
+    fun markNotificationSeen(
+        @Header("Authorization") token: String,
+        @retrofit2.http.Path("notification_id") notificationId: Int
+    ): Call<Map<String, Any>>
 }
+
+// Contact deletion models
+data class DeleteContactRequest(
+    @SerializedName("contact_user_id") val contactUserId: Int
+)
+
+data class ContactDeletedNotification(
+    @SerializedName("id") val id: Int,
+    @SerializedName("deleted_by_user_id") val deletedByUserId: Int,
+    @SerializedName("deleted_by_username") val deletedByUsername: String,
+    @SerializedName("deleted_by_phone") val deletedByPhone: String,
+    @SerializedName("created_at") val createdAt: String
+)
 
 // Full Backup models
 data class BackupContact(
