@@ -54,15 +54,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Marca de agua de Hamtaro centrada -->
+        <!-- Marca de agua de Hamtaro estirada al máximo -->
         <ImageView
             android:id="@+id/watermark_image"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
             android:layout_gravity="center"
             android:src="@drawable/hamtaro"
-            android:alpha="0.15"
-            android:scaleType="fitCenter" />
+            android:alpha="0.12"
+            android:scaleType="centerInside"
+            android:padding="32dp" />
 
         <ScrollView
             android:id="@+id/scroll_messages"
