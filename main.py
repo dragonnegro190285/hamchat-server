@@ -2000,13 +2000,13 @@ def edit_message(message_id: int, req: EditMessageRequest, current_user_id: int 
 
 @app.delete("/api/messages/{message_id}")
 def delete_message_for_everyone(message_id: int, current_user_id: int = Depends(get_user_id_from_token)):
-    """Eliminar un mensaje para todos (solo el remitente puede hacerlo)"""
+    """Eliminar un mensaje para todos (solo si no ha sido entregado)"""
     conn = get_db()
     cur = conn.cursor()
     
     # Verificar que el mensaje existe y es del usuario
     cur.execute(
-        "SELECT id, sender_id FROM messages WHERE id = ?",
+        "SELECT id, sender_id, is_delivered FROM messages WHERE id = ?",
         (message_id,)
     )
     row = cur.fetchone()
@@ -2018,6 +2018,11 @@ def delete_message_for_everyone(message_id: int, current_user_id: int = Depends(
     if row["sender_id"] != current_user_id:
         conn.close()
         raise HTTPException(status_code=403, detail="No puedes eliminar mensajes de otros")
+    
+    # Verificar si ya fue entregado
+    if row["is_delivered"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="El mensaje ya fue entregado, no se puede eliminar para todos")
     
     # Marcar como eliminado (no borrar físicamente para mantener integridad)
     cur.execute(
