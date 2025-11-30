@@ -116,6 +116,10 @@ class ChatActivity : BaseActivity() {
     
     // Mensajes favoritos/destacados
     private val starredMessages = mutableSetOf<String>()
+    
+    // Control de renderizado para evitar parpadeo
+    private var lastRenderedMessageCount = 0
+    private var lastRenderedMessageHash = 0
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -400,14 +404,14 @@ class ChatActivity : BaseActivity() {
         val remoteId = remoteUserId
         if (remoteId == null) {
             loadMessages()
-            renderMessages()
+            renderMessages(forceRender = true)
             return
         }
 
         // Primera carga: mostrar mensajes locales mientras se conecta
         if (isFirstLoad && !hasLoadedFromServer) {
             loadMessages()
-            renderMessages()
+            renderMessages(forceRender = true)
         }
 
         HamChatSyncManager.loadMessagesFromServer(
@@ -556,12 +560,44 @@ class ChatActivity : BaseActivity() {
     }
 
 
-    private fun renderMessages() {
+    private fun renderMessages(forceRender: Boolean = false) {
+        // Calcular hash de mensajes actuales para detectar cambios
+        val currentHash = messages.hashCode()
+        val currentCount = messages.size
+        
+        // Solo re-renderizar si hay cambios reales o es forzado
+        if (!forceRender && currentHash == lastRenderedMessageHash && currentCount == lastRenderedMessageCount) {
+            return // No hay cambios, evitar parpadeo
+        }
+        
+        // Guardar estado del campo de texto
+        val hasFocus = messageEditText.hasFocus()
+        val cursorPosition = messageEditText.selectionStart
+        val currentText = messageEditText.text.toString()
+        
+        // Renderizar mensajes
         messagesContainer.removeAllViews()
         for (m in messages) {
             addMessageToContainer(m)
         }
-        scrollToBottom()
+        
+        // Solo hacer scroll si hay mensajes nuevos
+        val hadNewMessages = currentCount > lastRenderedMessageCount
+        
+        // Actualizar tracking
+        lastRenderedMessageHash = currentHash
+        lastRenderedMessageCount = currentCount
+        
+        // Restaurar estado del campo de texto
+        if (hasFocus) {
+            messageEditText.requestFocus()
+            messageEditText.setSelection(minOf(cursorPosition, currentText.length))
+        }
+        
+        // Scroll al final si hay mensajes nuevos o es render forzado
+        if (hadNewMessages || forceRender) {
+            scrollToBottom()
+        }
     }
 
     private fun addMessageToContainer(message: ChatMessage) {
