@@ -172,6 +172,11 @@ class ChatActivity : BaseActivity() {
     private var lastTypingSent = 0L
     private val typingHandler = Handler(Looper.getMainLooper())
     private var isTypingCheckRunnable: Runnable? = null
+    
+    // Código Konami para minijuego: ↑↑↓↓←→←→BA
+    private val konamiCode = listOf("↑", "↑", "↓", "↓", "←", "→", "←", "→", "B", "A")
+    private val konamiInput = mutableListOf<String>()
+    private var lastKonamiInputTime = 0L
 
     // Sondeo periodico de mensajes para chats remotos
     private val messagePollingHandler = Handler(Looper.getMainLooper())
@@ -291,16 +296,13 @@ class ChatActivity : BaseActivity() {
                 val text = rawText.trim()
                 if (text.isEmpty()) return@setOnClickListener
 
-                // Código temporal: en el chat de Hamtaro, la letra 'x' abre el minijuego
-                if (isPrivateChat && text.equals("x", ignoreCase = true)) {
-                    messageEditText.setText("")
-                    try {
-                        val intent = Intent(this, GameWatchActivity::class.java)
-                        startActivity(intent)
-                    } catch (_: Exception) {
-                        Toast.makeText(this, "No se pudo abrir el minijuego", Toast.LENGTH_SHORT).show()
+                // Código Konami: detectar secuencia en el chat privado
+                if (isPrivateChat) {
+                    val konamiResult = checkKonamiCode(text)
+                    if (konamiResult) {
+                        messageEditText.setText("")
+                        return@setOnClickListener
                     }
-                    return@setOnClickListener
                 }
 
                 // Generar ID local único para el mensaje
@@ -3077,6 +3079,80 @@ class ChatActivity : BaseActivity() {
                 Toast.makeText(this, "Colección limpiada", Toast.LENGTH_SHORT).show()
             }
             .show()
+    }
+    
+    // ========== Código Konami para Minijuego ==========
+    
+    /**
+     * Verificar si el texto ingresado es parte del código Konami
+     * Secuencia: ↑↑↓↓←→←→BA (o sus equivalentes: u u d d l r l r b a)
+     */
+    private fun checkKonamiCode(text: String): Boolean {
+        val now = System.currentTimeMillis()
+        
+        // Si pasaron más de 5 segundos, reiniciar secuencia
+        if (now - lastKonamiInputTime > 5000) {
+            konamiInput.clear()
+        }
+        lastKonamiInputTime = now
+        
+        // Convertir texto a símbolo Konami
+        val symbol = when (text.lowercase()) {
+            "u", "up", "↑", "arriba" -> "↑"
+            "d", "down", "↓", "abajo" -> "↓"
+            "l", "left", "←", "izquierda" -> "←"
+            "r", "right", "→", "derecha" -> "→"
+            "b" -> "B"
+            "a" -> "A"
+            else -> null
+        }
+        
+        if (symbol != null) {
+            konamiInput.add(symbol)
+            
+            // Mostrar progreso
+            val progress = konamiInput.size
+            val total = konamiCode.size
+            
+            // Verificar si la secuencia va bien
+            val isCorrect = konamiInput.zip(konamiCode).all { (input, expected) -> input == expected }
+            
+            if (!isCorrect) {
+                konamiInput.clear()
+                return false
+            }
+            
+            // Mostrar progreso visual
+            if (progress < total) {
+                val remaining = konamiCode.drop(progress).joinToString("")
+                Toast.makeText(this, "🎮 $progress/$total... $remaining", Toast.LENGTH_SHORT).show()
+            }
+            
+            // ¡Código completo!
+            if (konamiInput.size == konamiCode.size) {
+                konamiInput.clear()
+                launchMinigame()
+                return true
+            }
+            
+            return true // Consumir el input
+        }
+        
+        return false
+    }
+    
+    /**
+     * Lanzar el minijuego secreto
+     */
+    private fun launchMinigame() {
+        Toast.makeText(this, "🎮 ¡CÓDIGO KONAMI ACTIVADO! 🐹", Toast.LENGTH_LONG).show()
+        
+        try {
+            val intent = Intent(this, GameWatchActivity::class.java)
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "No se pudo abrir el minijuego", Toast.LENGTH_SHORT).show()
+        }
     }
     
     // ========== Indicador "Escribiendo..." ==========
