@@ -978,6 +978,11 @@ class MainActivity : BaseActivity() {
             .setPositiveButton("📁 Conservar historial") { _, _ ->
                 // Marcar notificación como vista, conservar historial
                 markNotificationAsSeen(notification.id)
+                // Agregar mensaje del sistema al chat
+                addSystemMessageToChat(
+                    notification.deletedByUserId.toString(),
+                    "${notification.deletedByUsername} te ha eliminado de sus contactos. Ya no pueden enviarse mensajes."
+                )
                 Toast.makeText(this, "Historial conservado en tu backup", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("🗑️ Eliminar historial") { _, _ ->
@@ -1096,10 +1101,10 @@ class MainActivity : BaseActivity() {
             """.trimIndent())
             .setCancelable(false)
             .setPositiveButton("✅ Aceptar") { _, _ ->
-                respondToRestoreRequest(request.id, true, request.requesterUsername)
+                respondToRestoreRequest(request.id, true, request.requesterUsername, request.requesterUserId)
             }
             .setNegativeButton("❌ Rechazar") { _, _ ->
-                respondToRestoreRequest(request.id, false, request.requesterUsername)
+                respondToRestoreRequest(request.id, false, request.requesterUsername, request.requesterUserId)
             }
             .show()
     }
@@ -1107,7 +1112,7 @@ class MainActivity : BaseActivity() {
     /**
      * Responder a una solicitud de restauración
      */
-    private fun respondToRestoreRequest(requestId: Int, accept: Boolean, requesterName: String) {
+    private fun respondToRestoreRequest(requestId: Int, accept: Boolean, requesterName: String, requesterUserId: Int) {
         val securePrefs = SecurePreferences(this)
         val token = securePrefs.getAuthToken() ?: return
         
@@ -1119,6 +1124,11 @@ class MainActivity : BaseActivity() {
                     if (response.isSuccessful) {
                         if (accept) {
                             Toast.makeText(this@MainActivity, "✅ Contacto restaurado con $requesterName", Toast.LENGTH_SHORT).show()
+                            // Agregar mensaje del sistema al chat
+                            addSystemMessageToChat(
+                                requesterUserId.toString(),
+                                "Contacto restaurado. $requesterName y tú pueden volver a chatear."
+                            )
                             // Preguntar si quiere restaurar conversaciones del backup
                             askToRestoreConversations(requesterName)
                         } else {
@@ -1378,6 +1388,14 @@ class MainActivity : BaseActivity() {
             """.trimIndent()
         }
         
+        // Agregar mensaje del sistema al chat con este contacto
+        val systemMsg = if (isBlocked) {
+            "${notification.blockerUsername} te ha bloqueado. Ya no puedes enviar mensajes."
+        } else {
+            "${notification.blockerUsername} te ha desbloqueado. Pueden volver a chatear."
+        }
+        addSystemMessageToChat(notification.blockerUserId.toString(), systemMsg)
+        
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
@@ -1386,6 +1404,33 @@ class MainActivity : BaseActivity() {
             }
             .setCancelable(false)
             .show()
+    }
+    
+    /**
+     * Agregar mensaje del sistema al historial del chat con un contacto
+     */
+    private fun addSystemMessageToChat(contactId: String, message: String) {
+        val prefs = getSharedPreferences("hamchat_settings", MODE_PRIVATE)
+        val key = "chat_$contactId"
+        val existingJson = prefs.getString(key, "[]") ?: "[]"
+        
+        try {
+            val array = JSONArray(existingJson)
+            val systemMsg = JSONObject().apply {
+                put("sender", "Sistema")
+                put("content", message)
+                put("timestamp", System.currentTimeMillis())
+                put("serverId", 0)
+                put("localId", "system_${System.currentTimeMillis()}")
+                put("isSentToServer", true)
+                put("messageType", "system")
+                put("isSystemMessage", true)
+            }
+            array.put(systemMsg)
+            prefs.edit().putString(key, array.toString()).apply()
+        } catch (e: Exception) {
+            // Ignorar errores
+        }
     }
     
     /**

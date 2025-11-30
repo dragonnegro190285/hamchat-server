@@ -57,10 +57,11 @@ data class ChatMessage(
     val replyToContent: String? = null, // Contenido del mensaje al que responde (preview)
     val isForwarded: Boolean = false,   // Si es un mensaje reenviado
     val isStarred: Boolean = false,     // Si está marcado como favorito/importante
-    val messageType: String = "text",   // "text", "voice" o "image"
+    val messageType: String = "text",   // "text", "voice", "image" o "system"
     val audioData: String? = null,      // Base64 encoded audio
     val audioDuration: Int = 0,         // Duración en segundos
-    val imageData: String? = null       // Base64 encoded image
+    val imageData: String? = null,      // Base64 encoded image
+    val isSystemMessage: Boolean = false // Mensaje del sistema (notificaciones)
 ) {
     /**
      * Obtiene el estado actual del mensaje para mostrar indicador visual
@@ -411,6 +412,8 @@ class ChatActivity : BaseActivity() {
                 val serverId = obj.optInt("serverId", 0)
                 val localId = obj.optString("localId", "")
                 val isSentToServer = obj.optBoolean("isSentToServer", serverId > 0)
+                val messageType = obj.optString("messageType", "text")
+                val isSystemMessage = obj.optBoolean("isSystemMessage", false)
                 
                 messages.add(ChatMessage(
                     sender = sender,
@@ -418,7 +421,9 @@ class ChatActivity : BaseActivity() {
                     timestamp = timestamp,
                     serverId = serverId,
                     localId = localId,
-                    isSentToServer = isSentToServer
+                    isSentToServer = isSentToServer,
+                    messageType = messageType,
+                    isSystemMessage = isSystemMessage
                 ))
             }
         } catch (e: Exception) {
@@ -583,6 +588,8 @@ class ChatActivity : BaseActivity() {
             obj.put("serverId", m.serverId)
             obj.put("localId", m.localId)
             obj.put("isSentToServer", m.isSentToServer)
+            obj.put("messageType", m.messageType)
+            obj.put("isSystemMessage", m.isSystemMessage)
             array.put(obj)
         }
         prefs.edit().putString(key, array.toString()).apply()
@@ -630,6 +637,12 @@ class ChatActivity : BaseActivity() {
     }
 
     private fun addMessageToContainer(message: ChatMessage) {
+        // Si es mensaje del sistema, renderizar de forma especial
+        if (message.isSystemMessage || message.messageType == "system") {
+            addSystemMessageToContainer(message)
+            return
+        }
+        
         val isMyMessage = message.sender == "Yo"
         val isStarred = starredMessages.contains(message.localId)
         
@@ -870,6 +883,84 @@ class ChatActivity : BaseActivity() {
         }
 
         messagesContainer.addView(outerLayout)
+    }
+    
+    /**
+     * Renderiza un mensaje del sistema (notificaciones de bloqueo, eliminación, restauración)
+     */
+    private fun addSystemMessageToContainer(message: ChatMessage) {
+        val outerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(24, 12, 24, 12)
+            gravity = android.view.Gravity.CENTER
+        }
+        
+        val systemBubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 12, 16, 12)
+            setBackgroundColor(0xFFF5F5F5.toInt()) // Gris claro
+            
+            // Bordes redondeados
+            val drawable = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFF0F0F0.toInt())
+                cornerRadius = 16f
+                setStroke(1, 0xFFDDDDDD.toInt())
+            }
+            background = drawable
+        }
+        
+        val iconText = TextView(this).apply {
+            text = when {
+                message.content.contains("bloqueado", ignoreCase = true) -> "🚫"
+                message.content.contains("desbloqueado", ignoreCase = true) -> "✅"
+                message.content.contains("eliminado", ignoreCase = true) -> "📵"
+                message.content.contains("restaurado", ignoreCase = true) -> "🔄"
+                else -> "ℹ️"
+            }
+            textSize = 20f
+            gravity = android.view.Gravity.CENTER
+        }
+        
+        val messageText = TextView(this).apply {
+            text = message.content
+            textSize = 13f
+            setTextColor(0xFF666666.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 4, 0, 0)
+        }
+        
+        val timeText = TextView(this).apply {
+            val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            text = sdf.format(java.util.Date(message.timestamp))
+            textSize = 10f
+            setTextColor(0xFF999999.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 4, 0, 0)
+        }
+        
+        systemBubble.addView(iconText)
+        systemBubble.addView(messageText)
+        systemBubble.addView(timeText)
+        outerLayout.addView(systemBubble)
+        
+        messagesContainer.addView(outerLayout)
+    }
+    
+    /**
+     * Agregar mensaje del sistema al chat
+     */
+    fun addSystemMessage(content: String) {
+        val systemMessage = ChatMessage(
+            sender = "Sistema",
+            content = content,
+            timestamp = System.currentTimeMillis(),
+            localId = "system_${System.currentTimeMillis()}",
+            messageType = "system",
+            isSystemMessage = true
+        )
+        messages.add(systemMessage)
+        saveMessages()
+        renderMessages(forceRender = true)
     }
     
     /**
