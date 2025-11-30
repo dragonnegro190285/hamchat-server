@@ -474,6 +474,31 @@ interface HamChatApi {
         @Header("Authorization") token: String,
         @retrofit2.http.Path("target_user_id") targetUserId: Int
     ): Call<RestoreRequestStatus>
+    
+    // ========== Block/Unblock contacts ==========
+    
+    @POST("contacts/block")
+    fun blockContact(
+        @Header("Authorization") token: String,
+        @Body body: BlockContactRequest
+    ): Call<Map<String, Any>>
+    
+    @POST("contacts/unblock")
+    fun unblockContact(
+        @Header("Authorization") token: String,
+        @Body body: BlockContactRequest
+    ): Call<Map<String, Any>>
+    
+    @GET("contacts/blocked")
+    fun getBlockedContacts(
+        @Header("Authorization") token: String
+    ): Call<List<BlockedContactDto>>
+    
+    @GET("contacts/block-status/{user_id}")
+    fun checkBlockStatus(
+        @Header("Authorization") token: String,
+        @retrofit2.http.Path("user_id") userId: Int
+    ): Call<BlockStatusResponse>
 }
 
 // Contact deletion models
@@ -513,6 +538,25 @@ data class RestoreRequestStatus(
     @SerializedName("request_id") val requestId: Int? = null,
     @SerializedName("status") val status: String? = null,
     @SerializedName("responded_at") val respondedAt: String? = null
+)
+
+// Block contact models
+data class BlockContactRequest(
+    @SerializedName("user_id") val userId: Int
+)
+
+data class BlockedContactDto(
+    @SerializedName("id") val id: Int,
+    @SerializedName("blocked_user_id") val blockedUserId: Int,
+    @SerializedName("blocked_username") val blockedUsername: String,
+    @SerializedName("blocked_phone") val blockedPhone: String,
+    @SerializedName("created_at") val createdAt: String
+)
+
+data class BlockStatusResponse(
+    @SerializedName("i_blocked_them") val iBlockedThem: Boolean,
+    @SerializedName("they_blocked_me") val theyBlockedMe: Boolean,
+    @SerializedName("can_message") val canMessage: Boolean
 )
 
 // Full Backup models

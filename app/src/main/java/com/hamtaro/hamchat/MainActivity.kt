@@ -57,6 +57,8 @@ import com.hamtaro.hamchat.network.ContactDeletedNotification
 import com.hamtaro.hamchat.network.RestoreContactRequest
 import com.hamtaro.hamchat.network.ContactRestoreRequestDto
 import com.hamtaro.hamchat.network.RespondRestoreRequest
+import com.hamtaro.hamchat.network.BlockContactRequest
+import com.hamtaro.hamchat.network.BlockStatusResponse
 
 // ContactItem para UI de MainActivity (diferente de model.Contact)
 data class ContactItem(
@@ -1219,6 +1221,128 @@ class MainActivity : BaseActivity() {
                 
                 override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
                     Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    // ========== Block/Unblock contacts ==========
+    
+    /**
+     * Bloquear un contacto - no podrán enviarse mensajes pero los chats se mantienen
+     */
+    fun blockContact(userId: Int, username: String) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "No autenticado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("🚫 Bloquear contacto")
+            .setMessage("""
+                ¿Deseas bloquear a $username?
+                
+                Si bloqueas a este contacto:
+                • No podrán enviarse mensajes entre sí
+                • Tus conversaciones se mantendrán intactas
+                • Puedes desbloquearlo en cualquier momento
+                
+                El usuario NO será notificado del bloqueo.
+            """.trimIndent())
+            .setPositiveButton("Bloquear") { _, _ ->
+                performBlockContact(token, userId, username)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun performBlockContact(token: String, userId: Int, username: String) {
+        val request = BlockContactRequest(userId)
+        
+        HamChatApiClient.api.blockContact("Bearer $token", request)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "🚫 $username bloqueado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al bloquear", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Desbloquear un contacto
+     */
+    fun unblockContact(userId: Int, username: String) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) {
+            Toast.makeText(this, "No autenticado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("✅ Desbloquear contacto")
+            .setMessage("""
+                ¿Deseas desbloquear a $username?
+                
+                Si desbloqueas a este contacto:
+                • Podrán volver a enviarse mensajes
+                • Tus conversaciones anteriores siguen disponibles
+            """.trimIndent())
+            .setPositiveButton("Desbloquear") { _, _ ->
+                performUnblockContact(token, userId, username)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    private fun performUnblockContact(token: String, userId: Int, username: String) {
+        val request = BlockContactRequest(userId)
+        
+        HamChatApiClient.api.unblockContact("Bearer $token", request)
+            .enqueue(object : Callback<Map<String, Any>> {
+                override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@MainActivity, "✅ $username desbloqueado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error al desbloquear", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                    Toast.makeText(this@MainActivity, "Error de conexión", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+    
+    /**
+     * Verificar estado de bloqueo con un usuario
+     */
+    fun checkBlockStatus(userId: Int, onResult: (BlockStatusResponse) -> Unit) {
+        val securePrefs = SecurePreferences(this)
+        val token = securePrefs.getAuthToken()
+        
+        if (token.isNullOrEmpty()) return
+        
+        HamChatApiClient.api.checkBlockStatus("Bearer $token", userId)
+            .enqueue(object : Callback<BlockStatusResponse> {
+                override fun onResponse(call: Call<BlockStatusResponse>, response: Response<BlockStatusResponse>) {
+                    if (response.isSuccessful && response.body() != null) {
+                        onResult(response.body()!!)
+                    }
+                }
+                
+                override fun onFailure(call: Call<BlockStatusResponse>, t: Throwable) {
+                    // Silencioso
                 }
             })
     }
